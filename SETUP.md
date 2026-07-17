@@ -1,6 +1,19 @@
-# AI Interviewer - Project Setup
+# AI Interviewer - Setup Guide
 
-Follow these steps to run the project on a new system.
+This guide explains how to set up and run the AI Interviewer project on your local machine.
+
+---
+
+## Prerequisites
+
+Make sure the following software is installed:
+
+- Node.js (v18 or later)
+- npm
+- Python 3.10 or later
+- Git
+
+---
 
 ## 1. Clone the Repository
 
@@ -11,85 +24,68 @@ cd AI_INTERVIEWER
 
 ---
 
-## 2. Install Root Dependencies
+## 2. Install Dependencies
+
+### Root
 
 ```bash
 npm install
 ```
 
----
-
-## 3. Install Frontend Dependencies
+### Frontend
 
 ```bash
 cd client
 npm install
 ```
 
----
-
-## 4. Install Backend Dependencies
+### Backend
 
 ```bash
 cd ../server
 npm install
 ```
 
----
-
-## 5. Setup Resume Analyzer
+### Resume Analyzer (Flask API)
 
 ```bash
 cd ../resume-analyzer-api
 
 python3 -m venv venv
-source venv/bin/activate      # macOS/Linux
-# OR
-venv\Scripts\activate         # Windows
+
+# macOS / Linux
+source venv/bin/activate
+
+# Windows
+# venv\Scripts\activate
 
 pip install -r requirements.txt
 ```
 
 ---
 
-## 6. Environment Variables
+## 3. Frontend Environment
 
-### Client
+The required frontend environment configuration (`client/.env`) is already included in the repository.
 
-Create a file named:
-
-```
-client/.env
-```
-
-Add:
-
-```env
-VITE_FIREBASE_API_KEY=YOUR_FIREBASE_API_KEY
-VITE_FIREBASE_AUTH_DOMAIN=YOUR_AUTH_DOMAIN
-VITE_FIREBASE_PROJECT_ID=YOUR_PROJECT_ID
-VITE_FIREBASE_STORAGE_BUCKET=YOUR_STORAGE_BUCKET
-VITE_FIREBASE_MESSAGING_SENDER_ID=YOUR_SENDER_ID
-VITE_FIREBASE_APP_ID=YOUR_APP_ID
-VITE_FIREBASE_MEASUREMENT_ID=YOUR_MEASUREMENT_ID
-```
+No additional Firebase setup is required.
 
 ---
 
-### Server
+## 4. Backend Environment Variables
 
-Create:
+Create a file named:
 
 ```
 server/.env
 ```
 
-Example:
+Add the following variables:
 
 ```env
 PORT=8000
 
-MONGODB_URI=YOUR_MONGODB_URI
+MONGODB_URI=YOUR_MONGODB_CONNECTION_STRING
 
 JWT_SECRET=YOUR_JWT_SECRET
 
@@ -98,55 +94,24 @@ OPENROUTER_API_KEY=YOUR_OPENROUTER_API_KEY
 CLIENT_URL=http://localhost:5173
 ```
 
+Replace the placeholder values with your own credentials.
+
 ---
 
-## 7. Start the Project
+## 5. Run the Project
 
-From the project root:
+Return to the project root.
 
 ```bash
+cd ..
 npm run dev
 ```
 
-This starts:
+This command starts:
 
 - React Frontend
-- Node.js Backend
+- Express Backend
 - Flask Resume Analyzer
-
----
-
-## Common Issues
-
-### Port 5000 already in use
-
-```bash
-kill -9 $(lsof -ti:5000)
-```
-
-### Port 5173 already in use
-
-```bash
-kill -9 $(lsof -ti:5173)
-```
-
-### Python packages missing
-
-```bash
-cd resume-analyzer-api
-
-source venv/bin/activate
-
-pip install -r requirements.txt
-```
-
-### Node modules missing
-
-```bash
-npm install
-```
-
-inside the required folder (`client`, `server`, or project root).
 
 ---
 
@@ -159,5 +124,54 @@ AI_INTERVIEWER/
 ├── server/
 ├── resume-analyzer-api/
 ├── package.json
-└── SETUP.md
+├── SETUP.md
+└── .gitignore
 ```
+
+---
+
+## Common Issues
+
+### Python Packages Missing
+
+```bash
+cd resume-analyzer-api
+
+source venv/bin/activate
+
+pip install -r requirements.txt
+```
+
+---
+
+### Port 5000 Already in Use
+
+```bash
+kill -9 $(lsof -ti:5000)
+```
+
+---
+
+### Port 5173 Already in Use
+
+```bash
+kill -9 $(lsof -ti:5173)
+```
+
+---
+
+### Node Modules Missing
+
+Run the following command inside the required folder:
+
+```bash
+npm install
+```
+
+---
+
+## Notes
+
+- Do **not** commit `server/.env` because it contains sensitive credentials.
+- The frontend environment (`client/.env`) is already included in this repository.
+- If you change backend credentials, update `server/.env` accordingly before running the project.
