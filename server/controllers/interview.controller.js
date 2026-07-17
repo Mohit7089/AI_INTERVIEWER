@@ -1,78 +1,133 @@
 import fs from "fs"
-import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf.mjs";
 import { askAi } from "../services/openRouter.service.js";
 import User from "../models/user.model.js";
 import Interview from "../models/interview.model.js";
+import axios from "axios";
+import FormData from "form-data";
+
+const callResumeAnalyzer = async (filePath) => {
+  const formData = new FormData();
+
+  formData.append("file", fs.createReadStream(filePath));
+
+  const res = await axios.post(
+    "http://127.0.0.1:5000/analyze", // Flask API
+    formData,
+    {
+      headers: formData.getHeaders(),
+    }
+  );
+
+  return res.data;
+};
 
 export const analyzeResume = async (req, res) => {
   try {
+    // ✅ check file
     if (!req.file) {
       return res.status(400).json({ message: "Resume required" });
     }
-    const filepath = req.file.path
 
-    const fileBuffer = await fs.promises.readFile(filepath)
-    const uint8Array = new Uint8Array(fileBuffer)
+    const filepath = req.file.path;
 
-    const pdf = await pdfjsLib.getDocument({ data: uint8Array }).promise;
+    // ✅ call Flask API
+    const result = await callResumeAnalyzer(filepath);
 
-    let resumeText = "";
+    const resumeText = result.resumeText;
 
-    // Extract text from all pages
-    for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-      const page = await pdf.getPage(pageNum);
-      const content = await page.getTextContent();
+    // 🔥 LLM call for project extraction
+const safeText = resumeText?.slice(0, 2000);
+if (!resumeText || resumeText.trim().length < 50) {
+  console.log("❌ Resume text is empty or too short");
 
-      const pageText = content.items.map(item => item.str).join(" ");
-      resumeText += pageText + "\n";
-    }
+  return res.status(400).json({
+    message: "Resume text extraction failed"
+  });
+}
 
+const aiResponse = await askAi([
+  {
+    role: "system",
+    content: `
+You are an AI that extracts projects from resumes.
 
-    resumeText = resumeText
-      .replace(/\s+/g, " ")
-      .trim();
-
-    const messages = [
-      {
-        role: "system",
-        content: `
-Extract structured data from resume.
+Extract ONLY top 3 projects.
+If no projects found, return empty array [].
 
 Return strictly JSON:
-
-{
-  "role": "string",
-  "experience": "string",
-  "projects": ["project1", "project2"],
-  "skills": ["skill1", "skill2"]
-}
+[
+  {
+    "project_name": "...",
+    "summary": "..."
+  }
+]
 `
-      },
-      {
-        role: "user",
-        content: resumeText
+  },
+  {
+    role: "user",
+    content: safeText
+  }
+]);
+    console.log("🔥 Flask Response:", result);
+    console.log("🤖 AI Response:", aiResponse);
+
+    // ✅ safe delete file
+    if (fs.existsSync(filepath)) {
+      fs.unlinkSync(filepath);
+    }
+
+    // ✅ extract role
+    const role = result.roles?.[0]?.[0]?.toUpperCase() || "DEVELOPER";
+
+    // 🔥 PROJECTS FROM LLM (with fallback)
+    let projects = [];
+
+    try {
+      if (!aiResponse || !aiResponse.trim()) {
+        throw new Error("Empty AI response");
       }
-    ];
 
+      const clean = aiResponse.replace(/```json|```/g, "").trim();
+      const parsed = JSON.parse(clean);
 
-    const aiResponse = await askAi(messages)
+      projects = parsed.map(p => ({
+        name: p.project_name,
+        description: p.summary
+      }));
 
-    const parsed = JSON.parse(aiResponse);
+    } catch (err) {
+      console.log("⚠️ LLM failed, fallback to Flask");
 
-    fs.unlinkSync(filepath)
+      projects = (result.projects || []).map(p => ({
+        name: p.project_name,
+        description: p.summary
+      }));
+    }
 
+    // ✅ clean + sort skills
+    const skills = (result.skills || [])
+      .map((s) => s.toUpperCase())
+      .sort();
 
-    res.json({
-      role: parsed.role,
-      experience: parsed.experience,
-      projects: parsed.projects,
-      skills: parsed.skills,
-      resumeText
+    // ✅ clean + sort soft skills
+    const softSkills = (result.soft_skills || [])
+      .map((s) => s.toUpperCase())
+      .sort();
+
+    // ✅ final response
+    return res.json({
+      role,
+      experience: "",
+      projects,        // ✅ from LLM
+      skills,
+      softSkills,
+      score: result.score || 0,
     });
 
   } catch (error) {
     console.error(error);
 
+    // ✅ safe cleanup if error
     if (req.file && fs.existsSync(req.file.path)) {
       fs.unlinkSync(req.file.path);
     }
@@ -80,7 +135,6 @@ Return strictly JSON:
     return res.status(500).json({ message: error.message });
   }
 };
-
 
 export const generateQuestion = async (req, res) => {
   try {
@@ -102,11 +156,11 @@ export const generateQuestion = async (req, res) => {
       });
     }
 
-    if (user.credits < 50) {
-      return res.status(400).json({
-        message: "Not enough credits. Minimum 50 required."
-      });
-    }
+    // if (user.credits < 50) {
+    //   return res.status(400).json({
+    //     message: "Not enough credits. Minimum 50 required."
+    //   });
+    // }
 
     const projectText = Array.isArray(projects) && projects.length
       ? projects.join(", ")
@@ -145,6 +199,7 @@ Speak in simple, natural English as if you are directly talking to the candidate
 Generate exactly 5 interview questions.
 
 Strict Rules:
+- ask technical question
 - Each question must contain between 15 and 25 words.
 - Each question must be a single complete sentence.
 - Do NOT number them.
@@ -223,178 +278,276 @@ Make questions based on the candidate’s role, experience,interviewMode, projec
 }
 
 
+// export const submitAnswer = async (req, res) => {
+//   try {
+//     const { interviewId, questionIndex, answer, timeTaken } = req.body
+
+//     const interview = await Interview.findById(interviewId)
+//     const question = interview.questions[questionIndex]
+
+//     // If no answer
+//     if (!answer) {
+//       question.score = 0;
+//       question.feedback = "You did not submit an answer.";
+//       question.answer = "";
+
+//       await interview.save();
+
+//       return res.json({
+//         feedback: question.feedback
+//       });
+//     }
+
+//     // If time exceeded
+//     if (timeTaken > question.timeLimit) {
+//       question.score = 0;
+//       question.feedback = "Time limit exceeded. Answer not evaluated.";
+//       question.answer = answer;
+
+//       await interview.save();
+
+//       return res.json({
+//         feedback: question.feedback
+//       });
+//     }
+
+
+//     const messages = [
+//       {
+//         role: "system",
+//         content: `
+// You are a professional human interviewer evaluating a candidate's answer in a real interview.
+
+// Evaluate naturally and fairly, like a real person would.
+
+// Score the answer in these areas (0 to 10):
+
+// 1. Confidence – Does the answer sound clear, confident, and well-presented?
+// 2. Communication – Is the language simple, clear, and easy to understand?
+// 3. Correctness – Is the answer accurate, relevant, and complete?
+
+// Rules:
+// - Be realistic and unbiased.
+// - Do not give random high scores.
+// - If the answer is weak, score low.
+// - If the answer is strong and detailed, score high.
+// - Consider clarity, structure, and relevance.
+
+// Calculate:
+// finalScore = average of confidence, communication, and correctness (rounded to nearest whole number).
+
+// Feedback Rules:
+// - Write natural human feedback.
+// - 10 to 15 words only.
+// - Sound like real interview feedback.
+// - Can suggest improvement if needed.
+// - Do NOT repeat the question.
+// - Do NOT explain scoring.
+// - Keep tone professional and honest.
+
+// Return ONLY valid JSON in this format:
+
+// {
+//   "confidence": number,
+//   "communication": number,
+//   "correctness": number,
+//   "finalScore": number,
+//   "feedback": "short human feedback"
+// }
+// `
+//       }
+//       ,
+//       {
+//         role: "user",
+//         content: `
+// Question: ${question.question}
+// Answer: ${answer}
+// `
+//       }
+//     ];
+
+
+//     const aiResponse = await askAi(messages)
+
+
+//     const parsed = JSON.parse(aiResponse);
+
+//     question.answer = answer;
+//     question.confidence = parsed.confidence;
+//     question.communication = parsed.communication;
+//     question.correctness = parsed.correctness;
+//     question.score = parsed.finalScore;
+//     question.feedback = parsed.feedback;
+//     await interview.save();
+
+
+//     return res.status(200).json({feedback :parsed.feedback})
+//   } catch (error) {
+//     return res.status(500).json({message:`failed to submit answer ${error}`})
+
+//   }
+// }
+
+
 export const submitAnswer = async (req, res) => {
   try {
-    const { interviewId, questionIndex, answer, timeTaken } = req.body
+    const { interviewId, question, answer, timeTaken, keywords } = req.body;
 
-    const interview = await Interview.findById(interviewId)
-    const question = interview.questions[questionIndex]
+    const interview = await Interview.findById(interviewId);
 
-    // If no answer
+    const dbQuestion = interview.questions.find(
+  q => q.question.trim() === question.trim()
+);
+
     if (!answer) {
-      question.score = 0;
-      question.feedback = "You did not submit an answer.";
-      question.answer = "";
-
-      await interview.save();
-
       return res.json({
-        feedback: question.feedback
+        score: 0,
+        feedback: "You did not submit an answer."
       });
     }
 
-    // If time exceeded
-    if (timeTaken > question.timeLimit) {
-      question.score = 0;
-      question.feedback = "Time limit exceeded. Answer not evaluated.";
-      question.answer = answer;
-
-      await interview.save();
-
+    if (timeTaken > 60) {
       return res.json({
-        feedback: question.feedback
+        score: 0,
+        feedback: "Time limit exceeded."
       });
     }
 
+   const prompt = `
+Evaluate this interview answer out of 10.
 
-    const messages = [
-      {
-        role: "system",
-        content: `
-You are a professional human interviewer evaluating a candidate's answer in a real interview.
-
-Evaluate naturally and fairly, like a real person would.
-
-Score the answer in these areas (0 to 10):
-
-1. Confidence – Does the answer sound clear, confident, and well-presented?
-2. Communication – Is the language simple, clear, and easy to understand?
-3. Correctness – Is the answer accurate, relevant, and complete?
-
-Rules:
-- Be realistic and unbiased.
-- Do not give random high scores.
-- If the answer is weak, score low.
-- If the answer is strong and detailed, score high.
-- Consider clarity, structure, and relevance.
-
-Calculate:
-finalScore = average of confidence, communication, and correctness (rounded to nearest whole number).
-
-Feedback Rules:
-- Write natural human feedback.
-- 10 to 15 words only.
-- Sound like real interview feedback.
-- Can suggest improvement if needed.
-- Do NOT repeat the question.
-- Do NOT explain scoring.
-- Keep tone professional and honest.
-
-Return ONLY valid JSON in this format:
-
-{
-  "confidence": number,
-  "communication": number,
-  "correctness": number,
-  "finalScore": number,
-  "feedback": "short human feedback"
-}
-`
-      }
-      ,
-      {
-        role: "user",
-        content: `
-Question: ${question.question}
+Question: ${question}
 Answer: ${answer}
-`
-      }
-    ];
 
+Be fair. Consider:
+- correctness
+- clarity
+- depth
 
-    const aiResponse = await askAi(messages)
-
-
-    const parsed = JSON.parse(aiResponse);
-
-    question.answer = answer;
-    question.confidence = parsed.confidence;
-    question.communication = parsed.communication;
-    question.correctness = parsed.correctness;
-    question.score = parsed.finalScore;
-    question.feedback = parsed.feedback;
-    await interview.save();
-
-
-    return res.status(200).json({feedback :parsed.feedback})
-  } catch (error) {
-    return res.status(500).json({message:`failed to submit answer ${error}`})
-
-  }
+Return JSON:
+{
+  "score": number,
+  "feedback": "text"
 }
+`;
 
+const aiResponse = await askAi([
+  { role: "user", content: prompt }
+]);
 
-export const finishInterview = async (req,res) => {
-  try {
-    const {interviewId} = req.body
-    const interview = await Interview.findById(interviewId)
-    if(!interview){
-      return res.status(400).json({message:"failed to find Interview"})
+const parsed = JSON.parse(aiResponse);
+
+const result = {
+  score: parsed.score,
+  feedback: parsed.feedback
+};
+
+    const feedbackPrompt = `
+Give short interview feedback (1 sentence):
+
+Question: ${question}
+Answer: ${answer}
+`;
+
+    const aiFeedback = await askAi([
+      { role: "user", content: feedbackPrompt }
+    ]);
+
+    const followUpPrompt = `
+Based on this answer:
+
+"${answer}"
+
+Ask ONE follow-up interview question.
+`;
+
+    const nextQuestion = await askAi([
+      { role: "user", content: followUpPrompt }
+    ]);
+
+    // ✅ SAVE TO DB
+    if (dbQuestion) {
+      dbQuestion.answer = answer;
+      dbQuestion.score = result.score;
+      dbQuestion.feedback = result.feedback;
+
+      dbQuestion.confidence = result.score;
+      dbQuestion.communication = result.score;
+      dbQuestion.correctness = result.score;
     }
 
-    const totalQuestions = interview.questions.length;
 
-    let totalScore = 0;
-    let totalConfidence = 0;
-    let totalCommunication = 0;
-    let totalCorrectness = 0;
-
-    interview.questions.forEach((q) => {
-      totalScore += q.score || 0;
-      totalConfidence += q.confidence || 0;
-      totalCommunication += q.communication || 0;
-      totalCorrectness += q.correctness || 0;
-    });
-
-    const finalScore = totalQuestions
-      ? totalScore / totalQuestions
-      : 0;
-
-    const avgConfidence = totalQuestions
-      ? totalConfidence / totalQuestions
-      : 0;
-
-    const avgCommunication = totalQuestions
-      ? totalCommunication / totalQuestions
-      : 0;
-
-    const avgCorrectness = totalQuestions
-      ? totalCorrectness / totalQuestions
-      : 0;
-
-    interview.finalScore = finalScore;
-    interview.status = "completed";
 
     await interview.save();
 
     return res.status(200).json({
-       finalScore: Number(finalScore.toFixed(1)),
-      confidence: Number(avgConfidence.toFixed(1)),
-      communication: Number(avgCommunication.toFixed(1)),
-      correctness: Number(avgCorrectness.toFixed(1)),
-      questionWiseScore: interview.questions.map((q) => ({
-        question: q.question,
-        score: q.score || 0,
-        feedback: q.feedback || "",
-        confidence: q.confidence || 0,
-        communication: q.communication || 0,
-        correctness: q.correctness || 0,
-      })),
-    })
+      feedback: aiFeedback,
+      score: result.score,
+      nextQuestion
+    });
+
   } catch (error) {
-    return res.status(500).json({message:`failed to finish Interview ${error}`})
+    console.log("🔥 ERROR:", error);
+    return res.status(500).json({
+      message: `failed to submit answer ${error}`
+    });
   }
-}
+};
+
+
+export const finishInterview = async (req, res) => {
+  try {
+    const { interviewId } = req.body;
+
+    const interview = await Interview.findById(interviewId);
+
+    const questions = interview.questions;
+
+    // ✅ calculate scores
+    let total = 0;
+    let confidence = 0;
+    let communication = 0;
+    let correctness = 0;
+
+    questions.forEach(q => {
+      total += q.score || 0;
+      confidence += q.confidence || 0;
+      communication += q.communication || 0;
+      correctness += q.correctness || 0;
+    });
+
+    const finalScore = (total / questions.length).toFixed(1);
+
+    // ✅ average skills
+    confidence = Math.round(confidence / questions.length);
+    communication = Math.round(communication / questions.length);
+    correctness = Math.round(correctness / questions.length);
+
+    // ✅ format for frontend
+    const questionWiseScore = questions.map(q => ({
+      question: q.question,
+      score: q.score,
+      feedback: q.feedback
+    }));
+
+    // ✅ save
+    interview.finalScore = finalScore;
+    await interview.save();
+
+    // ✅ RESPONSE MATCHING YOUR UI
+    return res.json({
+      finalScore,
+      confidence,
+      communication,
+      correctness,
+      questionWiseScore
+    });
+
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: error.message });
+  }
+};
 
 
 export const getMyInterviews = async (req,res) => {

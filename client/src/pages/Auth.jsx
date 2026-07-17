@@ -83,20 +83,39 @@ function Auth({isModel = false}) {
 
     const handleGoogleAuth = async () => {
         try {
-            const response = await signInWithPopup(auth,provider)
-            let User = response.user
-            let name = User.displayName
-            let email = User.email
-            const result = await axios.post(ServerUrl + "/api/auth/google" , {name , email} , {withCredentials:true})
+           const response = await signInWithPopup(auth, provider);
+
+console.log("Firebase Response:", response);
+
+const User = response.user;
+
+console.log("User:", User);
+
+console.log("Sending request to:", ServerUrl + "/api/auth/google");
+
+const result = await axios.post(
+    ServerUrl + "/api/auth/google",
+    {
+        name: User.displayName,
+        email: User.email
+    },
+    {
+        withCredentials: true
+    }
+);
+
+console.log("Backend Result:", result.data);
             dispatch(setUserData(result.data))
+            window.location.href = "/"
             
 
 
             
-        } catch (error) {
-            console.log(error)
-              dispatch(setUserData(null))
-        }
+        }  catch (error) {
+    console.error("Google Login Error:", error);
+    console.error("Response:", error.response?.data);
+    dispatch(setUserData(null));
+}
     }
   return (
     <div className={`

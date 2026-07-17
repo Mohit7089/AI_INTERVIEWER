@@ -1,17 +1,18 @@
-import React from 'react'
+ import React from 'react'
 import maleVideo from "../assets/videos/male-ai.mp4"
 import femaleVideo from "../assets/videos/female-ai.mp4"
 import Timer from './Timer'
 import { motion } from "motion/react"
 import { FaMicrophone, FaMicrophoneSlash } from "react-icons/fa";
-import { useState } from 'react'
-import { useRef } from 'react'
-import { useEffect } from 'react'
+import  { useState, useRef, useEffect } from 'react';
 import axios from "axios"
 import { ServerUrl } from '../App'
 import { BsArrowRight } from 'react-icons/bs'
 
+
 function Step2Interview({ interviewData, onFinish }) {
+  const [score, setScore] = useState(null);
+ const [totalScore, setTotalScore] = useState(0);
   const { interviewId, questions, userName } = interviewData;
   const [isIntroPhase, setIsIntroPhase] = useState(true);
 
@@ -23,17 +24,20 @@ function Step2Interview({ interviewData, onFinish }) {
   const [answer, setAnswer] = useState("");
   const [feedback, setFeedback] = useState("");
   const [timeLeft, setTimeLeft] = useState(
-    questions[0]?.timeLimit || 60
+    questions[0]?.timeLimit || 90
   );
   const [selectedVoice, setSelectedVoice] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [voiceGender, setVoiceGender] = useState("female");
   const [subtitle, setSubtitle] = useState("");
+  const [followUpCount, setFollowUpCount] = useState(0);
+
+  const [dynamicQuestion, setDynamicQuestion] = useState(null);
+
 
 
   const videoRef = useRef(null);
-
-  const currentQuestion = questions[currentIndex];
+const currentQuestion = dynamicQuestion || questions[currentIndex];
 
 
   useEffect(() => {
@@ -172,13 +176,14 @@ function Step2Interview({ interviewData, onFinish }) {
     runIntro()
 
 
-  }, [selectedVoice, isIntroPhase, currentIndex])
+  }, [selectedVoice, isIntroPhase, currentIndex, dynamicQuestion])
 
 
 
   useEffect(() => {
     if (isIntroPhase) return;
     if (!currentQuestion) return;
+
     
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
@@ -193,13 +198,27 @@ function Step2Interview({ interviewData, onFinish }) {
 
     return () => clearInterval(timer)
 
-  }, [isIntroPhase, currentIndex])
+  }, [isIntroPhase, currentIndex , dynamicQuestion])
 
-  useEffect(() => {
-  if (!isIntroPhase && currentQuestion) {
-    setTimeLeft(currentQuestion.timeLimit || 60);
-  }
-}, [currentIndex]);
+useEffect(() => {
+  if (isIntroPhase) return;
+  if (!currentQuestion) return;
+
+  setTimeLeft(currentQuestion.timeLimit || 90);
+
+  const timer = setInterval(() => {
+    setTimeLeft(prev => {
+      if (prev <= 1) {
+        clearInterval(timer);
+        return 0;
+      }
+      return prev - 1;
+    });
+  }, 1000);
+
+  return () => clearInterval(timer);
+
+}, [currentIndex, dynamicQuestion]);
 
 
   useEffect(() => {
@@ -246,46 +265,89 @@ function Step2Interview({ interviewData, onFinish }) {
 
 
   const submitAnswer = async () => {
+    
     if (isSubmitting) return;
     stopMic()
     setIsSubmitting(true)
 
     try {
       const result = await axios.post(ServerUrl + "/api/interview/submit-answer", {
-        interviewId,
-        questionIndex: currentIndex,
-        answer,
-        timeTaken:
-          currentQuestion.timeLimit - timeLeft,
-      } , {withCredentials:true})
+  interviewId,
+  question: currentQuestion.question,
+  answer,
+  timeTaken: currentQuestion.timeLimit - timeLeft,
 
-      setFeedback(result.data.feedback)
-      speakText(result.data.feedback)
-      setIsSubmitting(false)
+  // 🔥 ADD THIS LINE
+  keywords: currentQuestion.keywords || []
+
+}, { withCredentials: true })
+
+
+// 🔥 SET NEXT QUESTION FROM BACKEND
+if (result.data.nextQuestion && followUpCount < 1) {
+
+  setDynamicQuestion({
+    id: Date.now(),
+    question: result.data.nextQuestion,
+    timeLimit: 90,
+    keywords: currentQuestion.keywords || ["javascript", "function", "web"]
+  });
+
+  setFollowUpCount(prev => prev + 1);
+
+  setAnswer("");
+  setFeedback("");
+  setTimeLeft(90);
+
+  setTimeout(() => {
+    if (isMicOn) startMic();
+  }, 500);
+
+  // 🔥 ADD THIS LINE
+  setIsSubmitting(false);
+
+  return;
+}
+
+setScore(result.data.score); // current question
+setTotalScore(prev => prev + result.data.score); // total score
+// setFeedback(result.data.feedback);
+// await speakText(result.data.feedback);
+handleNext();
+setIsSubmitting(false);
     } catch (error) {
 console.log(error)
 setIsSubmitting(false)
     }
   }
 
-  const handleNext =async () => {
-    setAnswer("");
-    setFeedback("");
+const handleNext = async () => {
+  setAnswer("");
+  setFeedback("");
 
+  // 🔥 FOLLOW-UP CASE
+  if (dynamicQuestion) {
+    setDynamicQuestion(null);
+    setFollowUpCount(0);
+
+    // move to next MAIN question
     if (currentIndex + 1 >= questions.length) {
       finishInterview();
       return;
     }
 
-    await speakText("Alright, let's move to the next question.");
-
-    setCurrentIndex(currentIndex + 1);
-    setTimeout(() => {
-      if (isMicOn) startMic();
-    }, 500);
-
-   
+    setCurrentIndex(prev => prev + 1);
+    return;
   }
+
+  // 🔥 NORMAL FLOW
+  if (currentIndex >= questions.length - 1) {
+    finishInterview();
+    return;
+  }
+
+  setCurrentIndex(prev => prev + 1);
+};
 
   const finishInterview = async () => {
     stopMic()
@@ -301,14 +363,17 @@ setIsSubmitting(false)
   }
 
 
-   useEffect(() => {
-    if (isIntroPhase) return;
-    if (!currentQuestion) return;
+useEffect(() => {
+  if (isIntroPhase) return;
+  if (!currentQuestion) return;
 
-    if (timeLeft === 0 && !isSubmitting && !feedback) {
-      submitAnswer()
-    }
-  }, [timeLeft]);
+  // 🔥 ADD THIS
+  if (dynamicQuestion) return;
+
+  if (timeLeft === 0 && !isSubmitting && !feedback) {
+    submitAnswer();
+  }
+}, [timeLeft]);
 
   useEffect(() => {
     return () => {
@@ -320,6 +385,11 @@ setIsSubmitting(false)
       window.speechSynthesis.cancel();
     };
   }, []);
+  useEffect(() => {
+  if (currentIndex >= questions.length) {
+    finishInterview();
+  }
+}, [currentIndex]);
 
 
 
@@ -412,7 +482,10 @@ setIsSubmitting(false)
             className="flex-1 bg-gray-100 p-4 sm:p-6 rounded-2xl resize-none outline-none border border-gray-200 focus:ring-2 focus:ring-emerald-500 transition text-gray-800" />
 
 
-         {!feedback ? ( <div className='flex items-center gap-4 mt-6'>
+         {(!feedback || dynamicQuestion) ? ( <div className='flex items-center gap-4 mt-6'>
+<p className="text-sm text-gray-600 mb-3">
+  Total Score: {totalScore} / {questions.length * 10}
+</p>
             <motion.button
               onClick={toggleMic}
               whileTap={{ scale: 0.9 }}

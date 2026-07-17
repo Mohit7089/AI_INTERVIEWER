@@ -52,3 +52,14 @@ coverage/
 
 # Misc
 .cache/
+
+# Python
+resume-analyzer-api/venv/
+resume-analyzer-api/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Python models (optional)
+# Uncomment if you don't want to upload trained models
+# resume-analyzer-api/*.pkl

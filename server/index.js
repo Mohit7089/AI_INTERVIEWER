@@ -22,7 +22,7 @@ app.use("/api/user", userRouter)
 app.use("/api/interview" , interviewRouter)
 // app.use("/api/payment" , paymentRouter)
 
-
+console.log("API KEY:", process.env.OPENROUTER_API_KEY);
 const PORT=process.env.PORT || 4000
 app.listen(PORT, ()=>{
     console.log(`Server running on port ${PORT}`)
