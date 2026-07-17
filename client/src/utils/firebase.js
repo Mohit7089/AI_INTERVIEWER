@@ -7,13 +7,13 @@ import {getAuth, GoogleAuthProvider} from "firebase/auth";
 
 // Your web app's Firebase configuration
 const firebaseConfig = {
-  apiKey: "AIzaSyCMBaBFOMVZil58ZI9QBmChBgNtWX8ipQE",
-  authDomain: "ai-interviewer-f54fc.firebaseapp.com",
-  projectId: "ai-interviewer-f54fc",
-  storageBucket: "ai-interviewer-f54fc.firebasestorage.app",
-  messagingSenderId: "764383288868",
-  appId: "1:764383288868:web:8a4ad49a1f7462afefc2b1",
-  measurementId: "G-C6L4XGM81Z"
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 // Initialize Firebase
