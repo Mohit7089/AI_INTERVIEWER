@@ -27,6 +27,8 @@ function Step1SetUp({ onStart }) {
     const [skills, setSkills] = useState([]);
     const [softSkills, setSoftSkills] = useState([]); // ✅ added
     const [score, setScore] = useState(0);
+    const [atsScore, setAtsScore] = useState(0);
+    const [topSkills, setTopSkills] = useState([]);
 
     const [resumeText, setResumeText] = useState("");
     const [analysisDone, setAnalysisDone] = useState(false);
@@ -49,12 +51,20 @@ function Step1SetUp({ onStart }) {
             console.log(result.data)
 
             setRole(result.data.role || "");
-            setExperience(result.data.experience || "");
-            setProjects(result.data.projects || []);
-            setSkills(result.data.skills || []);
-            setSoftSkills(result.data.softSkills || []); // ✅ added
-            setScore(result.data.score || 0);
-            setResumeText(result.data.resumeText || "");
+
+setProjects(result.data.projects || []);
+
+setSkills(result.data.skills || []);
+
+setSoftSkills(result.data.softSkills || []);
+
+setScore(result.data.score || 0);
+
+setAtsScore(result.data.atsScore || 0);
+
+setTopSkills(result.data.topSkills || []);
+
+setResumeText(result.data.resumeText || "");
 
             setAnalysisDone(true);
             setAnalyzing(false);
@@ -221,43 +231,82 @@ function Step1SetUp({ onStart }) {
                                 <p className="text-green-600 font-semibold">
                                         ✅ Resume analyzed successfully
                                  </p>
-                                 {role && (
-  <div>
-    <p className='font-medium text-gray-700 mb-1'>Role:</p>
-    <p className='text-green-700 font-semibold'>{role}</p>
-  </div>
-)}
-{score > 0 && (
-  <div>
-    <p className='font-medium text-gray-700 mb-1'>Score:</p>
-    <p className='text-blue-600 font-semibold'>{score}/100</p>
-  </div>
+                                 <div className="space-y-4">
+
+    {role && (
+        <div>
+            <p className="font-medium text-gray-700">AI Predicted Role</p>
+            <p className="text-green-700 font-semibold">{role}</p>
+        </div>
+    )}
+
+    <div className="flex gap-8">
+
+        <div>
+            <p className="font-medium text-gray-700">Resume Score</p>
+            <p className="text-blue-600 font-bold text-lg">
+                {score}/100
+            </p>
+        </div>
+
+        <div>
+            <p className="font-medium text-gray-700">ATS Score</p>
+            <p className="text-green-600 font-bold text-lg">
+                {atsScore}/100
+            </p>
+        </div>
+
+    </div>
+
+    {projects.length > 0 && (
+    <div>
+        <p className="font-medium text-gray-700 mb-2">
+            Featured Project
+        </p>
+
+        <div className="border rounded-lg p-4 bg-gray-50">
+            <h4 className="font-semibold">
+                {projects[0].name}
+            </h4>
+
+            <p className="text-sm text-gray-600 mt-1">
+                {projects[0].description}
+            </p>
+
+            <div className="flex flex-wrap gap-2 mt-3">
+                {projects[0].technologies?.map((tech, i) => (
+                    <span
+                        key={i}
+                        className="bg-blue-100 text-blue-700 px-2 py-1 rounded text-xs"
+                    >
+                        {tech}
+                    </span>
+                ))}
+            </div>
+        </div>
+    </div>
 )}
 
-                                {projects.length > 0 && (
-                                    <div>
-                                        <p className='font-medium text-gray-700 mb-1'>Projects:</p>
-                                        <ul className='list-disc list-inside text-gray-600 space-y-1'>
-                                            {projects.map((p, i) => (
-                                                <li key={i}>
-                                                    <p className="font-medium">{p.name}</p>
-                                                    <p className="text-sm text-gray-500">{p.description}</p>
-                                                </li>
-                                            ))}
-                                        </ul>
-                                    </div>
-                                )}
+    {topSkills.length > 0 && (
+        <div>
+            <p className="font-medium text-gray-700 mb-1">
+                Top Skills
+            </p>
 
-                                {skills.length > 0 && (
-                                    <div>
-                                        <p className='font-medium text-gray-700 mb-1'>Skills:</p>
-                                        <div className='flex flex-wrap gap-2'>
-                                            {skills.map((s, i) => (
-                                                <span key={i} className='bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm'>{s}</span>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
+            <div className="flex flex-wrap gap-2">
+                {topSkills.map((skill, index) => (
+                    <span
+                        key={index}
+                        className="bg-green-100 text-green-700 px-3 py-1 rounded-full text-sm"
+                    >
+                        {skill}
+                    </span>
+                ))}
+            </div>
+        </div>
+    )}
+
+</div>
 
                                 {softSkills.length > 0 && (
                                     <div>

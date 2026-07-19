@@ -17,6 +17,7 @@ function Step2Interview({ interviewData, onFinish }) {
   const [isIntroPhase, setIsIntroPhase] = useState(true);
 
   const [isMicOn, setIsMicOn] = useState(true);
+  
   const recognitionRef = useRef(null);
   const [isAIPlaying, setIsAIPlaying] = useState(false);
 
@@ -33,6 +34,9 @@ function Step2Interview({ interviewData, onFinish }) {
   const [followUpCount, setFollowUpCount] = useState(0);
 
   const [dynamicQuestion, setDynamicQuestion] = useState(null);
+  const isMicOnRef = useRef(true);
+
+  
 
 
 
@@ -44,6 +48,7 @@ const currentQuestion = dynamicQuestion || questions[currentIndex];
     const loadVoices = () => {
       const voices = window.speechSynthesis.getVoices();
       if (!voices.length) return;
+      
 
       // Try known female voices first
       const femaleVoice =
@@ -82,6 +87,9 @@ const currentQuestion = dynamicQuestion || questions[currentIndex];
     window.speechSynthesis.onvoiceschanged = loadVoices;
 
   }, [])
+   useEffect(() => {
+  isMicOnRef.current = isMicOn;
+}, [isMicOn]);
 
   const videoSource = voiceGender === "male" ? maleVideo : femaleVideo;
 
@@ -176,7 +184,11 @@ const currentQuestion = dynamicQuestion || questions[currentIndex];
     runIntro()
 
 
-  }, [selectedVoice, isIntroPhase, currentIndex, dynamicQuestion])
+  }
+  , [selectedVoice, isIntroPhase, currentIndex, dynamicQuestion])
+  useEffect(() => {
+  isMicOnRef.current = isMicOn;
+}, [isMicOn]);
 
 
 
@@ -199,6 +211,9 @@ const currentQuestion = dynamicQuestion || questions[currentIndex];
     return () => clearInterval(timer)
 
   }, [isIntroPhase, currentIndex , dynamicQuestion])
+  useEffect(() => {
+  isMicOnRef.current = isMicOn;
+}, [isMicOn]);
 
 useEffect(() => {
   if (isIntroPhase) return;
@@ -219,6 +234,9 @@ useEffect(() => {
   return () => clearInterval(timer);
 
 }, [currentIndex, dynamicQuestion]);
+useEffect(() => {
+  isMicOnRef.current = isMicOn;
+}, [isMicOn]);
 
 
   useEffect(() => {
@@ -235,10 +253,22 @@ useEffect(() => {
 
       setAnswer((prev) => prev + " " + transcript);
     };
+recognition.onend = () => {
+  if (!isMicOnRef.current) return;
+
+  setTimeout(() => {
+    try {
+      recognition.start();
+    } catch (err) {}
+  }, 300);
+};
 
     recognitionRef.current = recognition;
 
   }, []);
+  useEffect(() => {
+  isMicOnRef.current = isMicOn;
+}, [isMicOn]);
 
 
   const startMic = () => {
@@ -276,21 +306,21 @@ useEffect(() => {
   question: currentQuestion.question,
   answer,
   timeTaken: currentQuestion.timeLimit - timeLeft,
-
-  // 🔥 ADD THIS LINE
   keywords: currentQuestion.keywords || []
-
 }, { withCredentials: true })
 
+// ✅ Score the current question FIRST
+setScore(result.data.score);
+setTotalScore(prev => prev + result.data.score);
 
-// 🔥 SET NEXT QUESTION FROM BACKEND
+// Then show follow-up if there is one
 if (result.data.nextQuestion && followUpCount < 1) {
 
   setDynamicQuestion({
     id: Date.now(),
     question: result.data.nextQuestion,
     timeLimit: 90,
-    keywords: currentQuestion.keywords || ["javascript", "function", "web"]
+    keywords: currentQuestion.keywords || []
   });
 
   setFollowUpCount(prev => prev + 1);
@@ -303,9 +333,7 @@ if (result.data.nextQuestion && followUpCount < 1) {
     if (isMicOn) startMic();
   }, 500);
 
-  // 🔥 ADD THIS LINE
   setIsSubmitting(false);
-
   return;
 }
 
@@ -373,7 +401,11 @@ useEffect(() => {
   if (timeLeft === 0 && !isSubmitting && !feedback) {
     submitAnswer();
   }
-}, [timeLeft]);
+}
+, [timeLeft]);
+useEffect(() => {
+  isMicOnRef.current = isMicOn;
+}, [isMicOn]);
 
   useEffect(() => {
     return () => {

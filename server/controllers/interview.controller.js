@@ -115,14 +115,29 @@ Return strictly JSON:
       .sort();
 
     // ✅ final response
-    return res.json({
-      role,
-      experience: "",
-      projects,        // ✅ from LLM
-      skills,
-      softSkills,
-      score: result.score || 0,
-    });
+return res.json({
+  role,
+  experience: "",
+  projects,
+  skills,
+  softSkills,
+
+  score: result.resume_score || result.score || 0,
+
+  atsScore: result.analysis?.ats_score || 0,
+
+  topSkills: result.analysis?.top_skills || [],
+
+  summary: result.analysis?.summary || "",
+
+  strengths: result.analysis?.strengths || [],
+
+  weaknesses: result.analysis?.weaknesses || [],
+
+  missingSkills: result.analysis?.missing_skills || [],
+
+  suggestions: result.analysis?.suggestions || []
+});
 
   } catch (error) {
     console.error(error);

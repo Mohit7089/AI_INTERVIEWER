@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from utils import *
+from ai_analysis import analyze_resume
 
 app = Flask(__name__)
 
@@ -11,30 +12,43 @@ def home():
 def analyze():
 
     if "file" not in request.files:
-        return {"error": "Upload file"}, 400
+        return jsonify({"error": "Upload a PDF"}), 400
 
     file = request.files["file"]
 
-    # ✅ everything MUST be inside this function
+    # Extract resume text
     text = extract_text_from_pdf(file)
 
+    # Extract information
     skills = extract_skills(text)
     soft_skills = extract_all_soft_skills(text)
+    contact = extract_contact_info(text,file)
 
+    # Predict roles
     roles = predict_roles(text)
-    roles = adjust_roles_soft(skills, roles)
+    roles = adjust_roles_soft(skills, roles, text)
 
-    projects = extract_projects(text)
-    score = calculate_score(skills, projects, text)
+
+    # Resume score
+    score = calculate_score(skills, text, contact)
+
+    # AI analysis
+    analysis = analyze_resume(
+        roles,
+        skills,
+        contact,
+        score,
+        text
+    )
 
     return jsonify({
         "roles": roles,
         "skills": skills,
         "soft_skills": soft_skills,
-        "projects": projects,
-        "score": score,
+        "contact": contact,
+        "resume_score": score,
+        "analysis": analysis,
         "resumeText": text
     })
-
 if __name__ == "__main__":
     app.run(debug=True)

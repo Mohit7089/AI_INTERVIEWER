@@ -1,14 +1,16 @@
 import pickle
-import re
 import pdfplumber
+import fitz
+import re
+
 
 # -------- LOAD MODELS --------
 model = pickle.load(open("model.pkl", "rb"))
 vectorizer = pickle.load(open("vectorizer.pkl", "rb"))
 le = pickle.load(open("label_encoder.pkl", "rb"))
 
-model_lines = pickle.load(open("model_lines.pkl", "rb"))
-vectorizer_lines = pickle.load(open("vectorizer_lines.pkl", "rb"))
+# model_lines = pickle.load(open("model_lines.pkl", "rb"))
+# vectorizer_lines = pickle.load(open("vectorizer_lines.pkl", "rb"))
 
 # -------- CLEAN TEXT --------
 def clean_text(text):
@@ -22,7 +24,6 @@ import pytesseract
 pytesseract.pytesseract.tesseract_cmd = "/opt/homebrew/bin/tesseract"
 
 from PIL import Image
-import pdfplumber
 import tempfile
 
 def extract_text_from_pdf(file):
@@ -46,22 +47,170 @@ def extract_text_from_pdf(file):
 
                     text += ocr_text + "\n"
 
-    print("TEXT LENGTH:", len(text))  # DEBUG
+    print("TEXT LENGTH:", len(text))
+
+    file.seek(0)
 
     return text
+def extract_links(file):
+    file.seek(0)
+
+    pdf_bytes = file.read()
+
+    doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+
+    links = []
+
+    for page in doc:
+        for link in page.get_links():
+            uri = link.get("uri")
+            if uri:
+                links.append(uri.strip())
+
+    doc.close()
+
+    file.seek(0)
+
+    return links
+
+
+def extract_contact_info(text, file):
+
+    links = extract_links(file)
+
+    email = ""
+    github = ""
+    linkedin = ""
+
+    # -------- Extract from hyperlinks --------
+    for url in links:
+
+        url = url.strip()
+
+        if url.lower().startswith("mailto:"):
+            email = url.replace("mailto:", "").split("?")[0].strip()
+
+        elif "github.com" in url.lower():
+            github = url
+
+        elif "linkedin.com" in url.lower():
+            linkedin = url
+
+    # -------- Email (fallback) --------
+    if not email:
+        match = re.search(
+            r'[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}',
+            text
+        )
+        if match:
+            email = match.group(0)
+
+    # -------- Phone --------
+    phone = re.search(
+        r'(?:\+91[-\s]?)?[6-9]\d{9}',
+        text
+    )
+
+    # -------- GitHub (fallback) --------
+    if not github:
+        match = re.search(
+            r'((?:https?://)?(?:www\.)?github\.com/[^\s]+)',
+            text,
+            re.I
+        )
+        if match:
+            github = match.group(1)
+
+    # -------- LinkedIn (fallback) --------
+    if not linkedin:
+        match = re.search(
+            r'((?:https?://)?(?:www\.)?linkedin\.com/[^\s]+)',
+            text,
+            re.I
+        )
+        if match:
+            linkedin = match.group(1)
+
+    return {
+        "email": email,
+        "phone": phone.group(0) if phone else "",
+        "github": github,
+        "linkedin": linkedin
+    }
 # -------- SKILLS --------
 def extract_skills(text):
     skills_db = [
-        "python","java","c","c++","html","css",
-        "javascript","typescript",
-        "react","angular","vue","bootstrap","tailwind",
-        "node","express","spring","django","flask",
-        "sql","mysql","postgresql","mongodb",
-        "aws","docker","kubernetes","git",
-        "pandas","numpy","matplotlib","seaborn",
-        "scikit-learn","machine learning","deep learning",
-        "swing","jdbc"
-    ]
+
+    # Programming Languages
+    "python", "java", "c", "c++", "c#",
+    "javascript", "typescript",
+
+    # Frontend
+    "html", "css",
+    "react", "next.js", "redux",
+    "angular", "vue",
+    "bootstrap", "tailwind",
+
+    # Backend
+    "node", 
+    "express", 
+    "spring", "spring boot",
+    "django", "flask", "fastapi",
+
+    # Databases
+    "sql",
+    "mysql",
+    "postgresql",
+    "mongodb",
+    "sqlite",
+
+    # APIs
+    "rest api",
+    "graphql",
+    "jwt",
+
+    # DevOps & Cloud
+    "git",
+    "github",
+    "docker",
+    "kubernetes",
+    "aws",
+    "azure",
+    "gcp",
+    "redis",
+    "nginx",
+    "jenkins",
+
+    # Tools
+    "postman",
+    "vscode",
+    "eclipse",
+    "intellij",
+
+    # Java Technologies
+    "jdbc",
+    "hibernate",
+    "swing",
+    "maven",
+
+    # Python / Data Science
+    "numpy",
+    "pandas",
+    "matplotlib",
+    "seaborn",
+    "scikit-learn",
+    "tensorflow",
+    "keras",
+    "pytorch",
+    "opencv",
+    "machine learning",
+    "deep learning",
+
+    # Mobile
+    "android",
+    "flutter",
+    "react native"
+]
 
     text = text.lower()
     return list(set([s for s in skills_db if s in text]))
@@ -98,67 +247,7 @@ def extract_all_soft_skills(text):
 
     return list(set(direct + inferred))
 
-# -------- PROJECTS --------
-def extract_projects(text):
 
-    lines = [l.strip() for l in text.split('\n') if l.strip()]
-
-    X = vectorizer_lines.transform(lines)
-    preds = model_lines.predict(X)
-
-    projects = []
-    current_project = None
-    in_project_section = False
-
-    for line, label in zip(lines, preds):
-
-        clean = re.sub(r'\s+', ' ', line)
-        lower = clean.lower()
-
-        # detect project section
-        if "project" in lower:
-            in_project_section = True
-
-        # stop at other sections
-        if any(x in lower for x in ["education", "technical skills", "skills"]):
-            in_project_section = False
-
-        if not in_project_section:
-            continue
-
-        clean = re.sub(r'(?i)projects?', '', clean).strip()
-
-        # 🔥 improved title detection
-        if (
-            label == "TITLE" and
-            2 <= len(clean.split()) <= 8 and
-            not clean.endswith('.') and
-            not any(x in clean.lower() for x in [
-                "java","python","sql","html","css","react",
-                "c++","javascript","node"
-            ])
-        ):
-            current_project = {
-                "project_name": clean,
-                "summary": ""
-            }
-            projects.append(current_project)
-            continue
-
-        # description
-        if current_project:
-            if len(clean.split()) > 5:
-                current_project["summary"] += " " + clean
-
-    final = []
-    for p in projects:
-        if len(p["summary"].split()) > 5:
-            final.append({
-                "project_name": p["project_name"],
-                "summary": " ".join(p["summary"].split()[:25]) + "..."
-            })
-
-    return final[:5]
 
 # -------- ROLES --------
 def predict_roles(text):
@@ -222,26 +311,58 @@ def adjust_roles_soft(skills, roles, text=""):
         if "Data Scientist" in role_dict:
             role_dict["Data Scientist"] *= 0.3
 
-    # 🔥 NORMALIZE (safe)
     total = sum(role_dict.values()) or 1
     role_dict = {k: v / total for k, v in role_dict.items()}
 
     return sorted(role_dict.items(), key=lambda x: x[1], reverse=True)[:3]
 
 # -------- SCORE --------
-def calculate_score(skills, projects, text):
+def calculate_score(skills, text, contact):
+
     score = 0
 
-    score += min(len(skills) * 3, 30)
-    score += min(len(projects) * 15, 30)
+    # Skills (Max 35)
+    score += min(len(skills) * 2, 35)
 
-    if "experience" in text.lower():
-        score += 20
-
-    if any(x in text.lower() for x in ["bachelor","master","mca","btech"]):
+    # Education (Max 10)
+    if any(x in text.lower() for x in [
+        "bachelor", "master", "b.tech", "mca",
+        "bca", "m.tech", "msc"
+    ]):
         score += 10
 
-    if len(text.split()) > 300:
-        score += 10
+    # Resume Length (Max 10)
+    words = len(text.split())
 
-    return min(score, 100)
+    if words >= 400:
+        score += 10
+    elif words >= 250:
+        score += 7
+    elif words >= 150:
+        score += 5
+
+    # Contact Information (Max 20)
+    if contact["email"]:
+        score += 5
+
+    if contact["phone"]:
+        score += 5
+
+    if contact["github"]:
+        score += 5
+
+    if contact["linkedin"]:
+        score += 5
+
+    # Bonus Technical Skills (Max 25)
+    bonus_skills = {
+        "git", "docker", "aws", "typescript",
+        "graphql", "redis", "postman",
+        "kubernetes", "jenkins", "azure",
+        "gcp", "nginx"
+    }
+
+    bonus_count = len(set(skills) & bonus_skills)
+    score += min(bonus_count * 2, 25)
+
+    return min(round(score), 100)
