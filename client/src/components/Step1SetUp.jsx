@@ -8,6 +8,7 @@ import {
     FaChartLine,
 } from "react-icons/fa";
 import { useState } from 'react';
+import { useNavigate } from "react-router-dom";
 import axios from "axios"
 import { ServerUrl } from '../App';
 import { useDispatch, useSelector } from 'react-redux';
@@ -16,6 +17,7 @@ import { setUserData } from '../redux/userSlice';
 function Step1SetUp({ onStart }) {
     const { userData } = useSelector((state) => state.user)
     const dispatch = useDispatch()
+    const navigate = useNavigate();
 
     const [role, setRole] = useState("");
     const [experience, setExperience] = useState("");
@@ -33,6 +35,7 @@ function Step1SetUp({ onStart }) {
     const [resumeText, setResumeText] = useState("");
     const [analysisDone, setAnalysisDone] = useState(false);
     const [analyzing, setAnalyzing] = useState(false);
+    const [report, setReport] = useState(null);
 
     const handleUploadResume = async () => {
         if (!resumeFile || analyzing) return;
@@ -49,6 +52,7 @@ function Step1SetUp({ onStart }) {
             )
 
             console.log(result.data)
+            setReport(result.data);
 
             setRole(result.data.role || "");
 
@@ -231,11 +235,21 @@ setResumeText(result.data.resumeText || "");
                                 <p className="text-green-600 font-semibold">
                                         ✅ Resume analyzed successfully
                                  </p>
+                                 <button
+    onClick={() =>
+        navigate("/resume-report", {
+            state: { report },
+        })
+    }
+    className="mt-4 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
+>
+    View Full Report
+</button>
                                  <div className="space-y-4">
 
     {role && (
         <div>
-            <p className="font-medium text-gray-700">AI Predicted Role</p>
+            <p className="font-medium text-gray-700">Predicted Role</p>
             <p className="text-green-700 font-semibold">{role}</p>
         </div>
     )}

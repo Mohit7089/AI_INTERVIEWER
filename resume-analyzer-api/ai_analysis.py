@@ -1,99 +1,10 @@
 import re
+from role_data import (
+    ROLE_SKILLS,
+    SKILL_ALIASES,
+    SKILL_GAP_SUGGESTIONS,
+)
 
-
-ROLE_SKILLS = {
-
-    "Full Stack Developer": [
-        "react", "next.js", "node.js", "express", "mongodb",
-        "mysql", "postgresql", "javascript", "typescript",
-        "docker", "jwt", "graphql", "git", "aws"
-    ],
-
-    "Frontend Developer": [
-        "html", "css", "javascript", "typescript",
-        "react", "next.js", "redux", "bootstrap",
-        "tailwind", "graphql"
-    ],
-
-    "Backend Developer": [
-        "node.js", "express", "mongodb",
-        "mysql", "postgresql", "redis",
-        "docker", "jwt", "rest api",
-        "git", "aws"
-    ],
-
-    "Python Developer": [
-        "python", "flask", "django",
-        "fastapi", "sql", "git",
-        "docker", "postgresql"
-    ],
-
-    "Java Developer": [
-        "java", "spring", "spring boot",
-        "hibernate", "jdbc", "mysql",
-        "maven", "git"
-    ],
-
-    "Data Scientist": [
-        "python", "numpy", "pandas",
-        "matplotlib", "seaborn",
-        "scikit-learn", "tensorflow",
-        "pytorch", "opencv",
-        "machine learning", "deep learning"
-    ],
-
-    "Machine Learning Engineer": [
-        "python", "tensorflow", "pytorch",
-        "scikit-learn", "opencv",
-        "docker", "aws", "mlops"
-    ],
-
-    "AI Engineer": [
-        "python", "tensorflow", "pytorch",
-        "opencv", "transformers",
-        "langchain", "llm", "rag",
-        "vector database", "docker"
-    ],
-
-    "DevOps Engineer": [
-        "docker", "kubernetes", "jenkins",
-        "aws", "azure", "gcp",
-        "terraform", "ansible",
-        "linux", "nginx", "git"
-    ],
-
-    "Cloud Engineer": [
-        "aws", "azure", "gcp",
-        "docker", "kubernetes",
-        "terraform", "linux"
-    ],
-
-    "Android Developer": [
-        "java", "kotlin", "android",
-        "firebase", "sqlite"
-    ],
-
-    "React Native Developer": [
-        "react native", "javascript",
-        "typescript", "firebase"
-    ],
-
-    "Flutter Developer": [
-        "flutter", "dart",
-        "firebase", "sqlite"
-    ],
-
-    "Database Developer": [
-        "sql", "mysql", "postgresql",
-        "mongodb", "sqlite"
-    ],
-
-    "Software Engineer": [
-        "java", "python", "c++",
-        "javascript", "git",
-        "sql", "docker"
-    ]
-}
 def generate_summary(roles, skills):
 
     top_role = roles[0][0]
@@ -169,54 +80,110 @@ def get_weaknesses(contact,skills):
 
     return weaknesses
 
-def get_missing_skills(role,skills):
+def _normalize_role(role, role_skills):
+    """Match a predicted role string to the correct ROLE_SKILLS key,
+    tolerant of casing/spacing/hyphen differences."""
+    if not role:
+        return None
 
-    required=ROLE_SKILLS.get(role,[])
+    cleaned = role.strip().lower().replace("-", " ")
+    cleaned = " ".join(cleaned.split())
 
-    current=set(skills)
+    for key in role_skills:
+        if key.strip().lower().replace("-", " ") == cleaned:
+            return key
 
-    return sorted(list(set(required)-current))
+    return None
+def get_missing_skills(role, skills):
+    matched_role = _normalize_role(role, ROLE_SKILLS)
+
+    if not matched_role:
+        return []
+
+    role_data = ROLE_SKILLS[matched_role]
+    required = role_data.get("required", set())
+    advanced = role_data.get("advanced", set())
+
+    current = {_normalize_skill(s) for s in (skills or []) if s}
+
+    return sorted((required | advanced) - current)
+
+
 
 def calculate_ats_score(score, contact, skills, text):
-
     ats = score
+    lower = text.lower()
 
-    # Contact Information
-    if not contact["email"]:
+    # ---- Contact information ----
+    email_valid = bool(contact.get("email")) and re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", contact["email"])
+    phone_valid = bool(contact.get("phone")) and len(re.sub(r"\D", "", contact.get("phone", ""))) >= 7
+
+    if not email_valid:
         ats -= 5
-
-    if not contact["phone"]:
+    if not phone_valid:
         ats -= 3
-
-    if not contact["linkedin"]:
+    if not contact.get("linkedin"):
         ats -= 2
+    if not contact.get("github"):
+        ats -= 1  # optional, soft penalty
 
-    # GitHub is optional
-    if not contact["github"]:
-        ats -= 1
-
-    # Skills
-    if len(skills) < 8:
+    # ---- Skills ----
+    skill_count = len(skills)
+    if skill_count < 8:
         ats -= 5
-    elif len(skills) < 12:
+    elif skill_count < 12:
         ats -= 2
+    elif skill_count >= 15:
+        ats += 2  # bonus for a broad, well-rounded skillset
 
-    # Resume Length
+    # ---- Resume length ----
     words = len(text.split())
-
     if words < 150:
         ats -= 5
     elif words < 250:
         ats -= 2
+    elif words > 1000:
+        ats -= 2  # too long — ATS parsers often truncate
 
-    # Important Sections
-    lower = text.lower()
+    # ---- Section presence ----
+    section_keywords = {
+        "skills": ["technical skills", "skills"],
+        "experience": ["experience", "work history", "employment"],
+        "education": ["education", "academic"],
+        "projects": ["projects", "project work"],
+        "certifications": ["certification", "certifications", "licenses"],
+        "summary": ["summary", "objective", "profile"],
+    }
+    found = {name: any(kw in lower for kw in kws) for name, kws in section_keywords.items()}
 
-    if "technical skills" not in lower and "skills" not in lower:
+    if not found["skills"]:
         ats -= 3
+    if not found["experience"]:
+        ats -= 4  # experience is the section ATS parsers weight most
 
-    if "projects" not in lower:
-        ats -= 3
+    # Reward optional-but-valuable sections instead of just avoiding a penalty
+    if found["projects"]:
+        ats += 3
+    if found["certifications"]:
+        ats += 2
+    if found["summary"]:
+        ats += 1
+
+    # ---- Quantifiable achievements ("increased revenue by 20%", "$50k saved") ----
+    metric_hits = len(re.findall(r"\b\d+%|\b\d+\+|\$\d+", text))
+    if metric_hits >= 3:
+        ats += 3
+    elif metric_hits >= 1:
+        ats += 1
+
+    # ---- Strong action verbs ----
+    action_verbs = ["led", "built", "developed", "designed", "managed",
+                     "implemented", "improved", "launched", "optimized", "created"]
+    verb_hits = sum(1 for v in action_verbs if v in lower)
+    if verb_hits >= 4:
+        ats += 2
+    elif verb_hits >= 2:
+        ats += 1
 
     return max(0, min(round(ats), 100))
 
@@ -239,33 +206,72 @@ def recommend_roles(roles):
         })
 
     return result
-def ai_suggestions(contact,skills):
 
-    suggestions=[]
 
-    s=set(skills)
 
-    if not contact["github"]:
-        suggestions.append(
-            "Add GitHub profile link."
-        )
+def _normalize_skill(s):
+    """Skills can arrive as plain strings or (skill, category) tuples
+    depending on the extractor. Also resolves known aliases (e.g. "node"
+    -> "node.js") so gap-checking matches ROLE_SKILLS reliably."""
+    if isinstance(s, str):
+        raw = s.lower().strip()
+    elif isinstance(s, (tuple, list)) and s:
+        raw = str(s[0]).lower().strip()
+    else:
+        raw = str(s).lower().strip()
 
-    if not contact["linkedin"]:
-        suggestions.append(
-            "Add LinkedIn profile link."
-        )
+    return SKILL_ALIASES.get(raw, raw)
 
-    if "aws" not in s:
-        suggestions.append(
-            "Learn AWS for better backend opportunities."
-        )
 
-    if "docker" not in s:
-        suggestions.append(
-            "Add Docker experience."
-        )
+def ai_suggestions(contact, skills, role):
+    contact = contact or {}
+    skills = skills or []
 
-    return suggestions
+    # Handle tuple role
+    if isinstance(role, tuple):
+        role = role[0]
+
+    role = str(role or "Unknown").strip()
+
+    suggestions = []
+
+    # Normalize skills
+    current = {_normalize_skill(s) for s in skills if s}
+
+    # ---------------- Contact Suggestions ----------------
+    if not contact.get("github"):
+        suggestions.append("Add your GitHub profile link.")
+
+    if not contact.get("linkedin"):
+        suggestions.append("Add your LinkedIn profile link.")
+
+    if not contact.get("email"):
+        suggestions.append("Add a professional email address.")
+
+    if not contact.get("phone"):
+        suggestions.append("Add your phone number.")
+
+    # ---------------- Role-Based Skill Suggestions ----------------
+    role_data = ROLE_SKILLS.get(role)
+
+    if role_data:
+        required = role_data["required"]
+        advanced = role_data["advanced"]
+
+        missing = list(required - current) + list(advanced - current)
+
+        for skill in missing:
+            if skill in SKILL_GAP_SUGGESTIONS:
+                suggestions.append(SKILL_GAP_SUGGESTIONS[skill])
+            else:
+                suggestions.append(
+                    f"Learn {skill.title()} to strengthen your profile for a {role} role."
+                )
+
+    # Remove duplicates while preserving order
+    suggestions = list(dict.fromkeys(suggestions))
+
+    return suggestions[:5]
 def analyze_resume(
     roles,
     skills,
@@ -306,7 +312,7 @@ def analyze_resume(
             recommend_roles(roles),
 
         "suggestions":
-            ai_suggestions(contact,skills),
+         ai_suggestions(contact, skills, roles[0][0]),
             
         "top_skills":
     get_top_skills(

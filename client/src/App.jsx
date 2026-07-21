@@ -40,6 +40,8 @@
 // export default App
 
 
+import ResumeReport from "./components/ResumeReport";
+
 
 
 
@@ -87,6 +89,12 @@ function App() {
       <Route path='/history' element={<InterviewHistory/>}/>
       <Route path='/pricing' element={<Pricing/>}/>
       <Route path='/report/:id' element={<InterviewReport/>}/>
+
+
+
+
+      <Route path="/resume-report" element={<ResumeReport />} />
+
 
 
 

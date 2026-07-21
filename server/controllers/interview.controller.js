@@ -49,18 +49,53 @@ const aiResponse = await askAi([
   {
     role: "system",
     content: `
-You are an AI that extracts projects from resumes.
+You are an expert ATS resume reviewer.
 
-Extract ONLY top 3 projects.
-If no projects found, return empty array [].
+Analyze the resume and return ONLY valid JSON.
 
-Return strictly JSON:
-[
-  {
-    "project_name": "...",
-    "summary": "..."
-  }
-]
+{
+  "summary": "Generate an AI evaluation of the candidate.
+
+Rules:
+- DO NOT copy or paraphrase the resume summary.
+- Ignore any "Summary", "Profile", or "Objective" section already present in the resume.
+- Write a new evaluation based on the candidate's skills, projects, education, and experience.
+- Write from a recruiter's perspective.
+- Mention candidate honest resume analysis , with both pros and cons.
+- Keep it to 3-4 sentences.",
+
+  "projects": [
+    {
+      "project_name": "string",
+      "summary": "Brief explanation of the project in 2-3 sentences."
+    }
+  ],
+
+  "strengths": [
+    "...",
+    "...",
+    "...",
+    "...",
+
+  ],
+
+  "weaknesses": [
+    "...",
+    "...",
+    "...",
+    "...",
+  ]
+}
+
+Rules:
+- Write a professional summary in 4-5 sentences.
+- Extract at most 3 important projects.
+- For each project, provide a concise summary.
+- Provide exactly 5 strengths based ONLY on the resume.
+- Provide exactly 5 weaknesses based on missing information or areas for improvement.
+- Do not invent projects, experience, or skills.
+- If no projects are found, return an empty array.
+- Return ONLY valid JSON without markdown.
 `
   },
   {
@@ -68,57 +103,90 @@ Return strictly JSON:
     content: safeText
   }
 ]);
-    console.log("🔥 Flask Response:", result);
-    console.log("🤖 AI Response:", aiResponse);
 
-    // ✅ safe delete file
-    if (fs.existsSync(filepath)) {
-      fs.unlinkSync(filepath);
-    }
+console.log("🔥 Flask Response:", result);
+console.log("🤖 AI Response:", aiResponse);
 
-    // ✅ extract role
-    const role = result.roles?.[0]?.[0]?.toUpperCase() || "DEVELOPER";
+// safe delete file
+if (fs.existsSync(filepath)) {
+  fs.unlinkSync(filepath);
+}
 
-    // 🔥 PROJECTS FROM LLM (with fallback)
-    let projects = [];
+// role
+const role = result.roles?.[0]?.[0]?.toUpperCase() || "DEVELOPER";
 
-    try {
-      if (!aiResponse || !aiResponse.trim()) {
-        throw new Error("Empty AI response");
-      }
+// =======================
+// LLM OUTPUT
+// =======================
 
-      const clean = aiResponse.replace(/```json|```/g, "").trim();
-      const parsed = JSON.parse(clean);
+let summary = "";
+let strengths = [];
+let weaknesses = [];
+let projects = [];
 
-      projects = parsed.map(p => ({
-        name: p.project_name,
-        description: p.summary
-      }));
+try {
 
-    } catch (err) {
-      console.log("⚠️ LLM failed, fallback to Flask");
+  if (!aiResponse || !aiResponse.trim()) {
+    throw new Error("Empty AI response");
+  }
 
-      projects = (result.projects || []).map(p => ({
-        name: p.project_name,
-        description: p.summary
-      }));
-    }
+  const clean = aiResponse
+    .replace(/```json/g, "")
+    .replace(/```/g, "")
+    .trim();
 
-    // ✅ clean + sort skills
-    const skills = (result.skills || [])
-      .map((s) => s.toUpperCase())
-      .sort();
+  const parsed = JSON.parse(clean);
 
-    // ✅ clean + sort soft skills
-    const softSkills = (result.soft_skills || [])
-      .map((s) => s.toUpperCase())
-      .sort();
+  console.log("✅ Parsed LLM:", parsed);
 
-    // ✅ final response
+  summary = parsed.summary || "";
+
+  strengths = parsed.strengths || [];
+
+  weaknesses = parsed.weaknesses || [];
+
+  projects = (parsed.projects || []).map(project => ({
+    name: project.project_name,
+    description: project.summary
+  }));
+
+} catch (err) {
+
+  console.error("❌ LLM Parsing Failed");
+
+  console.error(err);
+
+  projects = (result.projects || []).map(project => ({
+    name: project.project_name,
+    description: project.summary
+  }));
+
+  summary = "";
+
+  strengths = [];
+
+  weaknesses = [];
+}
+// ✅ clean + sort skills
+const skills = (result.skills || [])
+  .map(s => s.toUpperCase())
+  .sort();
+
+// ✅ clean + sort soft skills
+const softSkills = (result.soft_skills || [])
+  .map(s => s.toUpperCase())
+  .sort();
+
+// ✅ final response
 return res.json({
   role,
   experience: "",
+
   projects,
+  summary,
+  strengths,
+  weaknesses,
+
   skills,
   softSkills,
 
@@ -128,29 +196,28 @@ return res.json({
 
   topSkills: result.analysis?.top_skills || [],
 
-  summary: result.analysis?.summary || "",
-
-  strengths: result.analysis?.strengths || [],
-
-  weaknesses: result.analysis?.weaknesses || [],
-
   missingSkills: result.analysis?.missing_skills || [],
 
-  suggestions: result.analysis?.suggestions || []
+  suggestions: result.analysis?.suggestions || [],
+
+  careerRecommendation:
+    result.analysis?.career_recommendation || [],
+
+  contact: result.contact || {}
 });
 
-  } catch (error) {
-    console.error(error);
+} catch (error) {
+  console.error(error);
 
-    // ✅ safe cleanup if error
-    if (req.file && fs.existsSync(req.file.path)) {
-      fs.unlinkSync(req.file.path);
-    }
-
-    return res.status(500).json({ message: error.message });
+  if (req.file && fs.existsSync(req.file.path)) {
+    fs.unlinkSync(req.file.path);
   }
-};
 
+  return res.status(500).json({
+    message: error.message
+  });
+}
+};
 export const generateQuestion = async (req, res) => {
   try {
     let { role, experience, mode, resumeText, projects, skills } = req.body
@@ -512,7 +579,9 @@ Ask ONE follow-up interview question.
 
 export const finishInterview = async (req, res) => {
   try {
-    const { interviewId } = req.body;
+    const {
+  interviewId,
+} = req.body;
 
     const interview = await Interview.findById(interviewId);
 
@@ -551,12 +620,12 @@ export const finishInterview = async (req, res) => {
 
     // ✅ RESPONSE MATCHING YOUR UI
     return res.json({
-      finalScore,
-      confidence,
-      communication,
-      correctness,
-      questionWiseScore
-    });
+  finalScore,
+  confidence,
+  communication,
+  correctness,
+  questionWiseScore,
+});
 
   } catch (error) {
     console.log(error);

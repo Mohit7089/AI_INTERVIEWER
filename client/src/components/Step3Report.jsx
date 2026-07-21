@@ -278,6 +278,7 @@ function Step3Report({ report }) {
             <h3 className="text-base sm:text-lg font-semibold text-gray-700 mb-4 sm:mb-6">
               Performance Trend
             </h3>
+            
 
             <div className='h-64 sm:h-72'>
 

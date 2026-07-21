@@ -27,10 +27,16 @@ def analyze():
     # Predict roles
     roles = predict_roles(text)
     roles = adjust_roles_soft(skills, roles, text)
+    predicted_role = roles[0] if roles else "Unknown"
 
 
     # Resume score
-    score = calculate_score(skills, text, contact)
+    score = calculate_score(
+    skills,
+    text,
+    contact,
+    predicted_role
+)
 
     # AI analysis
     analysis = analyze_resume(

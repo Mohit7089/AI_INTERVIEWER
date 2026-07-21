@@ -1,4 +1,5 @@
 import pickle
+from role_data import *
 import pdfplumber
 import fitz
 import re
@@ -317,52 +318,125 @@ def adjust_roles_soft(skills, roles, text=""):
     return sorted(role_dict.items(), key=lambda x: x[1], reverse=True)[:3]
 
 # -------- SCORE --------
-def calculate_score(skills, text, contact):
+import re
+
+from role_data import (
+    EDUCATION,
+    EXPERIENCE,
+    SECTIONS,
+    ROLE_SKILLS
+)
+
+
+def calculate_score(skills, text, contact, predicted_role):
+
+    text = text.lower()
+
+    skills = {s.lower().strip() for s in skills}
 
     score = 0
 
-    # Skills (Max 35)
-    score += min(len(skills) * 2, 35)
+    # --------------------------
+    # Contact (10)
+    # --------------------------
 
-    # Education (Max 10)
-    if any(x in text.lower() for x in [
-        "bachelor", "master", "b.tech", "mca",
-        "bca", "m.tech", "msc"
-    ]):
+    if contact.get("email"):
+        score += 3
+
+    if contact.get("phone"):
+        score += 2
+
+    if contact.get("linkedin"):
+        score += 3
+
+    if contact.get("github"):
+        score += 2
+
+
+    # --------------------------
+    # Education (10)
+    # --------------------------
+
+    if any(word in text for word in EDUCATION):
         score += 10
 
-    # Resume Length (Max 10)
+
+    # --------------------------
+    # Experience (15)
+    # --------------------------
+
+    if any(word in text for word in EXPERIENCE):
+        score += 15
+
+
+    # --------------------------
+    # Projects (15)
+    # --------------------------
+
+    project_count = text.count("project")
+
+    if project_count >= 2:
+        score += 10
+
+    if project_count >= 2:
+        score += 7
+
+
+    # --------------------------
+    # Skills (30)
+    # --------------------------
+
+    role = ROLE_SKILLS.get(predicted_role)
+
+    if role:
+
+        required = role["required"]
+
+        advanced = role["advanced"]
+
+        required_matches = len(required & skills)
+
+        advanced_matches = len(advanced & skills)
+
+        score += min(required_matches * 2, 10)
+
+        score += min(advanced_matches * 3, 20)
+
+    else:
+
+        score += min(len(skills), 10)
+
+
+    # --------------------------
+    # Quantified Achievements (10)
+    # --------------------------
+
+    if re.search(r"\d+%", text):
+        score += 5
+
+    if re.search(r"\d+\+?", text):
+        score += 5
+
+
+    # --------------------------
+    # Resume Length (5)
+    # --------------------------
+
     words = len(text.split())
 
-    if words >= 400:
-        score += 10
-    elif words >= 250:
-        score += 7
-    elif words >= 150:
+    if 250 <= words <= 700:
         score += 5
 
-    # Contact Information (Max 20)
-    if contact["email"]:
-        score += 5
+    elif 150 <= words < 250:
+        score += 3
 
-    if contact["phone"]:
-        score += 5
 
-    if contact["github"]:
-        score += 5
+    # --------------------------
+    # ATS Sections (5)
+    # --------------------------
 
-    if contact["linkedin"]:
-        score += 5
+    found = sum(section in text for section in SECTIONS)
 
-    # Bonus Technical Skills (Max 25)
-    bonus_skills = {
-        "git", "docker", "aws", "typescript",
-        "graphql", "redis", "postman",
-        "kubernetes", "jenkins", "azure",
-        "gcp", "nginx"
-    }
-
-    bonus_count = len(set(skills) & bonus_skills)
-    score += min(bonus_count * 2, 25)
+    score += min(found, 3)
 
     return min(round(score), 100)
