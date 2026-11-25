@@ -1,4 +1,4 @@
- import React from 'react'
+import React from 'react'
 import maleVideo from "../assets/videos/male-ai.mp4"
 import femaleVideo from "../assets/videos/female-ai.mp4"
 import Timer from './Timer'
@@ -8,9 +8,13 @@ import  { useState, useRef, useEffect } from 'react';
 import axios from "axios"
 import { ServerUrl } from '../App'
 import { BsArrowRight } from 'react-icons/bs'
+import { useSelector } from 'react-redux'
+import ProctoringPanel from './ProctoringPanel'
+import { useProctoring } from "../hooks/useProctoring";
 
 
 function Step2Interview({ interviewData, onFinish }) {
+  const userData = useSelector((state) => state.user.userData)
   const [score, setScore] = useState(null);
  const [totalScore, setTotalScore] = useState(0);
   const { interviewId, questions, userName } = interviewData;
@@ -37,12 +41,32 @@ function Step2Interview({ interviewData, onFinish }) {
   const isMicOnRef = useRef(true);
 
   
-
+  // ── Audio confidence recording refs ─────────────────────────────────────
+  const streamRef = useRef(null);
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const isAudioRecordingRef = useRef(false); // whether a recorder exists for the current question
 
 
   const videoRef = useRef(null);
-const currentQuestion = dynamicQuestion || questions[currentIndex];
+  const currentQuestion = dynamicQuestion || questions[currentIndex];
 
+  const {
+    videoRef: proctorVideoRef,
+    canvasRef: proctorCanvasRef,
+    status: proctorStatus,
+    isConnected: proctorConnected,
+    latestResult: proctorLatestResult,
+    activeWarning: proctorActiveWarning,
+    error: proctorError,
+    endSession,
+  } = useProctoring({
+    interviewId,
+    userId: userData?._id,
+    candidateName: userName,
+    active: !isIntroPhase,
+    onReportReady: (report) => console.log('Proctoring report:', report),
+  });
 
   useEffect(() => {
     const loadVoices = () => {
@@ -93,6 +117,84 @@ const currentQuestion = dynamicQuestion || questions[currentIndex];
 
   const videoSource = voiceGender === "male" ? maleVideo : femaleVideo;
 
+  // ── Acquire mic stream once on mount (used for MediaRecorder, separate
+  //    from webkitSpeechRecognition which grabs its own internal stream) ──
+  useEffect(() => {
+    navigator.mediaDevices.getUserMedia({
+      audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
+    }).then(stream => {
+      streamRef.current = stream;
+    }).catch(err => console.log("Mic permission error:", err));
+
+    return () => {
+      streamRef.current?.getTracks().forEach(t => t.stop());
+    };
+  }, []);
+
+  // ── Start a fresh recorder for a new question ───────────────────────────
+  const startAudioRecording = () => {
+    if (!streamRef.current) return;
+    if (isAudioRecordingRef.current) return; // already recording this question
+
+    audioChunksRef.current = [];
+    const recorder = new MediaRecorder(streamRef.current, { mimeType: "audio/webm" });
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) audioChunksRef.current.push(e.data);
+    };
+    recorder.start();
+    mediaRecorderRef.current = recorder;
+    isAudioRecordingRef.current = true;
+  };
+
+  // ── Pause/resume around AI-speaking gaps, so one question = one blob ───
+  const pauseAudioRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "recording") {
+      mediaRecorderRef.current.pause();
+    }
+  };
+
+  const resumeAudioRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === "paused") {
+      mediaRecorderRef.current.resume();
+    }
+  };
+
+  // ── Stop recording and return the finished blob for this question ──────
+  const stopAudioRecordingAndGetBlob = () => {
+    return new Promise((resolve) => {
+      if (!mediaRecorderRef.current || !isAudioRecordingRef.current) {
+        resolve(null);
+        return;
+      }
+      mediaRecorderRef.current.onstop = () => {
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        audioChunksRef.current = [];
+        isAudioRecordingRef.current = false;
+        resolve(blob);
+      };
+      mediaRecorderRef.current.stop();
+    });
+  };
+
+  // ── Upload the answer's audio blob for confidence analysis ─────────────
+  const submitAudioForConfidence = async (blob, questionId) => {
+    if (!blob || blob.size === 0) return;
+    try {
+      const formData = new FormData();
+      formData.append("audio", blob, `answer_${Date.now()}.webm`);
+      formData.append("interviewId", interviewId);
+      // formData.append("questionId", questionId);
+      formData.append("question", currentQuestion.question); 
+
+      await axios.post(ServerUrl + "/api/interview/submit-audio", formData, {
+        withCredentials: true,
+        headers: { "Content-Type": "multipart/form-data" }
+      });
+    } catch (err) {
+      // Non-fatal: confidence analysis failing shouldn't block the interview flow
+      console.log("Audio confidence upload failed:", err);
+    }
+  };
 
   /* ---------------- SPEAK FUNCTION ---------------- */
   const speakText = (text) => {
@@ -277,12 +379,22 @@ recognition.onend = () => {
         recognitionRef.current.start();
       } catch { }
     }
+    // Audio recording: start fresh for a new question, resume if just paused
+    // for an AI-speaking gap within the same question.
+    if (!isAudioRecordingRef.current) {
+      startAudioRecording();
+    } else {
+      resumeAudioRecording();
+    }
   };
 
   const stopMic = () => {
     if (recognitionRef.current) {
       recognitionRef.current.stop();
     }
+    // Pause (not stop) so the question's audio stays a single clip —
+    // actual stop only happens at submitAnswer/finishInterview time.
+    pauseAudioRecording();
   };
   const toggleMic = () => {
     if (isMicOn) {
@@ -299,6 +411,13 @@ recognition.onend = () => {
     if (isSubmitting) return;
     stopMic()
     setIsSubmitting(true)
+
+    // Finalize this question's audio clip and send it for confidence analysis
+    // (fire-and-forget — doesn't block the score/feedback flow below)
+    const questionIdForAudio = currentQuestion?.id ?? currentQuestion?.question;
+    stopAudioRecordingAndGetBlob().then((blob) => {
+      submitAudioForConfidence(blob, questionIdForAudio);
+    });
 
     try {
       const result = await axios.post(ServerUrl + "/api/interview/submit-answer", {
@@ -380,6 +499,7 @@ const handleNext = async () => {
   const finishInterview = async () => {
     stopMic()
     setIsMicOn(false)
+    await endSession();    // ← finalize proctoring, wait for report before navigating away
     try {
       const result = await axios.post(ServerUrl+ "/api/interview/finish" , { interviewId} , {withCredentials:true})
 
@@ -552,6 +672,16 @@ useEffect(() => {
           )}
         </div>
       </div>
+
+      <ProctoringPanel
+        videoRef={proctorVideoRef}
+        canvasRef={proctorCanvasRef}
+        status={proctorStatus}
+        isConnected={proctorConnected}
+        latestResult={proctorLatestResult}
+        activeWarning={proctorActiveWarning}
+        error={proctorError}
+      />
 
     </div>
   )

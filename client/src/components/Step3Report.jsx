@@ -22,6 +22,7 @@ function Step3Report({ report }) {
     confidence = 0,
     communication = 0,
     correctness = 0,
+    audioConfidence = 0,
     questionWiseScore = [],
   } = report;
 
@@ -30,10 +31,23 @@ function Step3Report({ report }) {
     score: score.score || 0
   }))
 
+  const confidenceScoreData = questionWiseScore.map((q, index) => ({
+    name: `Q${index + 1}`,
+    confidence: q.audioConfidenceScore || 0,
+    label: q.audioConfidenceLabel || "n/a"
+  }));
+
+  const getConfidenceLabel = (score) => {
+    if (score >= 7) return "High";
+    if (score >= 4) return "Medium";
+    return "Low";
+  };
+
   const skills = [
     { label: "Confidence", value: confidence },
     { label: "Communication", value: communication },
     { label: "Correctness", value: correctness },
+    { label: "Voice Confidence", value: audioConfidence },
   ];
 
   let performanceText = "";
@@ -247,7 +261,9 @@ function Step3Report({ report }) {
                     <div className='flex justify-between mb-2 text-sm sm:text-base'>
 
                       <span>{s.label}</span>
-                      <span className='font-semibold text-green-600'>{s.value}</span>
+                      <span className='font-semibold text-green-600'>
+                        {s.label === "Voice Confidence" ? `${getConfidenceLabel(s.value)} (${s.value})` : s.value}
+                      </span>
                     </div>
 
                     <div className='bg-gray-200 h-2 sm:h-3 rounded-full'>
@@ -303,6 +319,36 @@ function Step3Report({ report }) {
             </div>
 
 
+          </motion.div>
+
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className='bg-white rounded-2xl sm:rounded-3xl shadow-lg p-5 sm:p-8'>
+            <h3 className="text-base sm:text-lg font-semibold text-gray-700 mb-4 sm:mb-6">
+              Voice Confidence Trend
+            </h3>
+
+            <div className='h-64 sm:h-72'>
+              <ResponsiveContainer width="100%" height="100%">
+                <AreaChart data={confidenceScoreData}>
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis domain={[0, 10]} />
+                  <Tooltip
+                    formatter={(value, name, props) => [
+                      `${props.payload.label.toUpperCase()} (${value.toFixed(1)})`,
+                      "Voice Confidence"
+                    ]}
+                  />
+                  <Area type="monotone"
+                    dataKey="confidence"
+                    stroke="#0ea5e9"
+                    fill="#bae6fd"
+                    strokeWidth={3} />
+                </AreaChart>
+              </ResponsiveContainer>
+            </div>
           </motion.div>
 
           <motion.div

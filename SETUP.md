@@ -51,16 +51,90 @@ npm install
 ```bash
 cd ../resume-analyzer-api
 
-python3 -m venv venv
+python -m venv venv
+```
 
-# macOS / Linux
+Activate the virtual environment:
+
+**Windows**
+```bash
+venv\Scripts\activate
+```
+
+**macOS / Linux**
+```bash
 source venv/bin/activate
+```
 
-# Windows
-# venv\Scripts\activate
+Install dependencies:
 
+```bash
 pip install -r requirements.txt
 ```
+
+### AI Proctoring
+
+The AI Proctoring module provides interview monitoring and proctoring functionality.
+
+```bash
+cd ../ai_proctoring
+
+python -m venv .venv
+```
+
+Activate the virtual environment:
+
+**Windows**
+```bash
+.venv\Scripts\activate
+```
+
+**macOS / Linux**
+```bash
+source .venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+### Audio Confidence
+
+The Audio Confidence module analyzes interview audio and uses a trained machine learning model to perform confidence classification.
+
+```bash
+cd ../Audio_Confidence
+
+python -m venv venv
+```
+
+Activate the virtual environment:
+
+**Windows**
+```bash
+venv\Scripts\activate
+```
+
+**macOS / Linux**
+```bash
+source venv/bin/activate
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+The following pretrained model files must be present in the `Audio_Confidence` directory:
+
+- `model.pkl`
+- `scaler.pkl`
+- `label_encoder.pkl`
+
+These files are required for loading the trained model and performing predictions.
 
 ---
 
@@ -76,7 +150,7 @@ No additional Firebase setup is required.
 
 Create a file named:
 
-```
+```text
 server/.env
 ```
 
@@ -98,12 +172,31 @@ Replace the placeholder values with your own credentials.
 
 ---
 
-## 5. Run the Project
+## 5. AI Proctoring Environment
 
-Return to the project root.
+The AI Proctoring module includes an `.env.example` file.
+
+Create a `.env` file inside the `ai_proctoring` directory using the example configuration:
+
+```bash
+cd ai_proctoring
+```
+
+Copy `.env.example` to `.env` and configure the required environment variables.
+
+---
+
+## 6. Run the Project
+
+Return to the project root:
 
 ```bash
 cd ..
+```
+
+Start the project using:
+
+```bash
 npm run dev
 ```
 
@@ -113,16 +206,20 @@ This command starts:
 - Express Backend
 - Flask Resume Analyzer
 
+AI Proctoring and Audio Confidence should be configured and started according to their respective module README instructions.
+
 ---
 
 ## Project Structure
 
-```
+```text
 AI_INTERVIEWER/
 │
 ├── client/
 ├── server/
 ├── resume-analyzer-api/
+├── ai_proctoring/
+├── Audio_Confidence/
 ├── package.json
 ├── SETUP.md
 └── .gitignore
@@ -134,31 +231,41 @@ AI_INTERVIEWER/
 
 ### Python Packages Missing
 
+Navigate to the required Python module, activate its virtual environment and install dependencies:
+
 ```bash
-cd resume-analyzer-api
-
-source venv/bin/activate
-
 pip install -r requirements.txt
 ```
 
----
-
 ### Port 5000 Already in Use
+
+**macOS / Linux**
 
 ```bash
 kill -9 $(lsof -ti:5000)
 ```
 
----
+**Windows**
+
+```powershell
+netstat -ano | findstr :5000
+taskkill /PID <PID> /F
+```
 
 ### Port 5173 Already in Use
+
+**macOS / Linux**
 
 ```bash
 kill -9 $(lsof -ti:5173)
 ```
 
----
+**Windows**
+
+```powershell
+netstat -ano | findstr :5173
+taskkill /PID <PID> /F
+```
 
 ### Node Modules Missing
 
@@ -168,10 +275,29 @@ Run the following command inside the required folder:
 npm install
 ```
 
+### Python Virtual Environment Issues
+
+If the virtual environment is missing or corrupted, recreate it:
+
+```bash
+python -m venv venv
+```
+
+Activate it and reinstall the dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
 ---
 
 ## Notes
 
-- Do **not** commit `server/.env` because it contains sensitive credentials.
+- Do not commit `server/.env` or other `.env` files containing sensitive credentials.
 - The frontend environment (`client/.env`) is already included in this repository.
 - If you change backend credentials, update `server/.env` accordingly before running the project.
+- Each Python module maintains its own virtual environment.
+- Do not commit `venv/`, `.venv/`, `node_modules/`, or `__pycache__/` directories.
+- Ensure all required pretrained model files are available before running the Audio Confidence module.
+- Install Python dependencies separately for each module using its respective `requirements.txt`.
+- Refer to the individual module README files for additional configuration and service-specific startup instructions.

@@ -47,7 +47,7 @@ function Navbar() {
 
             <div className='flex items-center gap-6  relative'>
                 <div className='relative'>
-                    <button onClick={()=>{
+                    {/* <button onClick={()=>{
                         if(!userData){
                             setShowAuth(true)
                             return;
@@ -57,7 +57,7 @@ function Navbar() {
                     }} className='flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-full text-md hover:bg-gray-200 transition'>
                         <BsCoin size={20}/>
                         {userData?.credits || 0}
-                    </button>
+                    </button> */}
 
                     {showCreditPopup && (
                         <div className='absolute right-[-50px] mt-3 w-64 bg-white shadow-xl border border-gray-200 rounded-xl p-5 z-50'>

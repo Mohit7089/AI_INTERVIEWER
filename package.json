@@ -6,8 +6,10 @@
   "scripts": {
     "client": "cd client && npm run dev",
     "server": "cd server && npm run dev",
-   "resume": "cd resume-analyzer-api && ./venv/bin/python app.py",
-    "dev": "concurrently -k -n CLIENT,SERVER,RESUME -c blue,green,yellow \"npm run client\" \"npm run server\" \"npm run resume\""
+    "resume": "cd resume-analyzer-api && venv\\Scripts\\python.exe app.py",
+    "proctoring": "cd ai_proctoring && .venv\\Scripts\\uvicorn.exe main:app --host 0.0.0.0 --port 8001 --reload",
+    "confidence": "cd Audio_Confidence && venv\\Scripts\\python.exe main.py",
+    "dev": "concurrently -k -n CLIENT,SERVER,RESUME,PROCTOR,AUDIO -c blue,green,yellow,magenta,red \"npm run client\" \"npm run server\" \"npm run resume\" \"npm run proctoring\" \"npm run confidence\""
   },
   "repository": {
     "type": "git",
@@ -23,5 +25,9 @@
   "homepage": "https://github.com/brahmananda-bhoi/AI_INTERVIEWER#readme",
   "devDependencies": {
     "concurrently": "^10.0.3"
+  },
+  "dependencies": {
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "fluent-ffmpeg": "^2.1.3"
   }
 }

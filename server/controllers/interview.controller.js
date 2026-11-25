@@ -4,6 +4,11 @@ import User from "../models/user.model.js";
 import Interview from "../models/interview.model.js";
 import axios from "axios";
 import FormData from "form-data";
+import ffmpeg from "fluent-ffmpeg";
+import ffmpegInstaller from "@ffmpeg-installer/ffmpeg";
+import path from "path";
+
+ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 const callResumeAnalyzer = async (filePath) => {
   const formData = new FormData();
@@ -19,6 +24,54 @@ const callResumeAnalyzer = async (filePath) => {
   );
 
   return res.data;
+};
+
+export const submitAudio = async (req, res) => {
+  const webmPath = req.file.path;
+  const wavPath = webmPath.replace(/\.webm$/, ".wav");
+  try {
+    const { interviewId, question } = req.body;
+
+    await new Promise((resolve, reject) => {
+      ffmpeg(webmPath)
+        .toFormat("wav")
+        .audioFrequency(22050)
+        .on("end", resolve)
+        .on("error", reject)
+        .save(wavPath);
+    });
+
+    const form = new FormData();
+    form.append("audio", fs.createReadStream(wavPath));
+    form.append("question_id", question); // fixed: was `questionId` (undefined)
+
+    const { data } = await axios.post(
+      `${process.env.CONFIDENCE_API_URL}/analyse`,
+      form,
+      { headers: form.getHeaders() }
+    );
+    // console.log("🎙️ Confidence result:", data);      // DEBUGGING the api result
+
+    const interview = await Interview.findById(interviewId);
+    const dbQuestion = interview.questions.find(
+      q => q.question.trim() === question.trim()
+    );
+    // console.log("🔍 dbQuestion found?", !!dbQuestion, "| looking for:", question);
+    if (dbQuestion) {
+      dbQuestion.audioConfidenceLabel = data.predicted_label;
+      dbQuestion.audioConfidenceScore = data.confidence_score * 10;
+      await interview.save();
+    }
+
+    res.status(200).json({ success: true, confidence: data });
+  } catch (err) {
+    console.error("Confidence analysis failed:", err.message);
+    res.status(500).json({ success: false, message: "Audio analysis failed" });
+  } finally {
+    // Always clean up, whether the request succeeded or failed
+    if (webmPath) fs.unlink(webmPath, () => {});
+    if (wavPath) fs.unlink(wavPath, () => {});
+  }
 };
 
 export const analyzeResume = async (req, res) => {
@@ -478,8 +531,8 @@ export const submitAnswer = async (req, res) => {
     const interview = await Interview.findById(interviewId);
 
     const dbQuestion = interview.questions.find(
-  q => q.question.trim() === question.trim()
-);
+      q => q.question.trim() === question.trim()
+    );
 
     if (!answer) {
       return res.json({
@@ -488,14 +541,14 @@ export const submitAnswer = async (req, res) => {
       });
     }
 
-    if (timeTaken > 60) {
+    if (dbQuestion && timeTaken > (dbQuestion.timeLimit || 60)) {
       return res.json({
         score: 0,
         feedback: "Time limit exceeded."
       });
     }
 
-   const prompt = `
+    const prompt = `
 Evaluate this interview answer out of 10.
 
 Question: ${question}
@@ -513,41 +566,34 @@ Return JSON:
 }
 `;
 
-const aiResponse = await askAi([
-  { role: "user", content: prompt }
-]);
+    // ── Call 1: score + feedback (the one that gets saved to DB) ─────────
+    let aiResponse;
+    try {
+      aiResponse = await askAi([{ role: "user", content: prompt }]);
+    } catch (err) {
+      console.log("🔥 askAi() (score/feedback) threw:", err.message);
+      aiResponse = null;
+    }
 
-const parsed = JSON.parse(aiResponse);
+    let parsed = { score: 0, feedback: "Could not evaluate this answer." };
+    if (aiResponse) {
+      const cleanResponse = aiResponse.replace(/```json|```/g, "").trim();
+      try {
+        parsed = JSON.parse(cleanResponse);
+      } catch (parseErr) {
+        console.log("⚠️ JSON parse failed. Raw response was:", aiResponse);
+      }
+    }
 
-const result = {
-  score: parsed.score,
-  feedback: parsed.feedback
-};
+    const result = {
+      score: parsed.score,
+      feedback: parsed.feedback
+    };
 
-    const feedbackPrompt = `
-Give short interview feedback (1 sentence):
-
-Question: ${question}
-Answer: ${answer}
-`;
-
-    const aiFeedback = await askAi([
-      { role: "user", content: feedbackPrompt }
-    ]);
-
-    const followUpPrompt = `
-Based on this answer:
-
-"${answer}"
-
-Ask ONE follow-up interview question.
-`;
-
-    const nextQuestion = await askAi([
-      { role: "user", content: followUpPrompt }
-    ]);
-
-    // ✅ SAVE TO DB
+    // ✅ SAVE TO DB IMMEDIATELY — this must not depend on the two calls below.
+    // Previously this save happened after the follow-up/duplicate-feedback
+    // calls, so if either of those threw, the score/feedback above was
+    // silently lost even though it was already computed successfully.
     if (dbQuestion) {
       dbQuestion.answer = answer;
       dbQuestion.score = result.score;
@@ -556,11 +602,41 @@ Ask ONE follow-up interview question.
       dbQuestion.confidence = result.score;
       dbQuestion.communication = result.score;
       dbQuestion.correctness = result.score;
+
+      await interview.save();
     }
 
+    // ── Call 2: duplicate one-sentence feedback (non-critical) ───────────
+    let aiFeedback = result.feedback;
+    try {
+      const feedbackPrompt = `
+Give short interview feedback (1 sentence):
 
+Question: ${question}
+Answer: ${answer}
+`;
+      aiFeedback = await askAi([{ role: "user", content: feedbackPrompt }]);
+    } catch (err) {
+      console.log("⚠️ Duplicate feedback call failed:", err.message);
+      // fall back to the feedback we already saved above
+    }
 
-    await interview.save();
+    // ── Call 3: follow-up question (non-critical) ─────────────────────────
+    let nextQuestion = null;
+    try {
+      const followUpPrompt = `
+Based on this answer:
+
+"${answer}"
+
+Ask ONE follow-up interview question.
+`;
+      nextQuestion = await askAi([{ role: "user", content: followUpPrompt }]);
+    } catch (err) {
+      console.log("⚠️ Follow-up question call failed:", err.message);
+      // nextQuestion stays null — frontend already treats falsy nextQuestion
+      // as "no follow-up", so this fails gracefully
+    }
 
     return res.status(200).json({
       feedback: aiFeedback,
@@ -592,12 +668,14 @@ export const finishInterview = async (req, res) => {
     let confidence = 0;
     let communication = 0;
     let correctness = 0;
+    let audioConfidence = 0;
 
     questions.forEach(q => {
       total += q.score || 0;
       confidence += q.confidence || 0;
       communication += q.communication || 0;
       correctness += q.correctness || 0;
+      audioConfidence += q.audioConfidenceScore || 0; 
     });
 
     const finalScore = (total / questions.length).toFixed(1);
@@ -606,12 +684,15 @@ export const finishInterview = async (req, res) => {
     confidence = Math.round(confidence / questions.length);
     communication = Math.round(communication / questions.length);
     correctness = Math.round(correctness / questions.length);
+    audioConfidence = Number((audioConfidence / questions.length).toFixed(2));
 
     // ✅ format for frontend
     const questionWiseScore = questions.map(q => ({
       question: q.question,
       score: q.score,
-      feedback: q.feedback
+      feedback: q.feedback,
+      audioConfidenceScore: q.audioConfidenceScore || 0,
+      audioConfidenceLabel: q.audioConfidenceLabel || null,
     }));
 
     // ✅ save
@@ -624,6 +705,7 @@ export const finishInterview = async (req, res) => {
   confidence,
   communication,
   correctness,
+  audioConfidence,
   questionWiseScore,
 });
 
@@ -661,11 +743,13 @@ export const getInterviewReport = async (req,res) => {
     let totalConfidence = 0;
     let totalCommunication = 0;
     let totalCorrectness = 0;
+    let totalAudioConfidence = 0;
 
     interview.questions.forEach((q) => {
       totalConfidence += q.confidence || 0;
       totalCommunication += q.communication || 0;
       totalCorrectness += q.correctness || 0;
+      totalAudioConfidence += q.audioConfidenceScore || 0;
     });
     const avgConfidence = totalQuestions
       ? totalConfidence / totalQuestions
@@ -679,11 +763,16 @@ export const getInterviewReport = async (req,res) => {
       ? totalCorrectness / totalQuestions
       : 0;
 
+    const avgAudioConfidence = totalQuestions
+      ? totalAudioConfidence / totalQuestions 
+      : 0;
+
        return res.json({
       finalScore: interview.finalScore,
       confidence: Number(avgConfidence.toFixed(1)),
       communication: Number(avgCommunication.toFixed(1)),
       correctness: Number(avgCorrectness.toFixed(1)),
+      audioConfidence: Number(avgAudioConfidence.toFixed(2)), 
       questionWiseScore: interview.questions
     });
 
@@ -691,7 +780,3 @@ export const getInterviewReport = async (req,res) => {
     return res.status(500).json({message:`failed to find currentUser Interview report ${error}`})
   }
 }
-
-
-
-

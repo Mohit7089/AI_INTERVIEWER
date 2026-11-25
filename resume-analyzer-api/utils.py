@@ -269,53 +269,314 @@ def predict_roles(text):
     return roles
 
 def adjust_roles_soft(skills, roles, text=""):
+
     role_dict = dict(roles)
-    skills_set = set(s.lower() for s in skills)
+    skills_set = {s.lower() for s in skills}
     text = text.lower()
 
-    # 🔥 FULL STACK DETECTION (improved)
-    if (
-        ("react" in skills_set or "angular" in skills_set)
-        and ("node" in skills_set or "express" in skills_set)
-    ):
-        role_dict["Full Stack Developer"] = role_dict.get("Full Stack Developer", 0) + 0.8
+    # ----------------------------
+    # Normalize aliases
+    # ----------------------------
+    aliases = {
+        "node.js": "node",
+        "express.js": "express",
+        "react.js": "react",
+        "next.js": "next",
+        "spring boot": "spring",
+        "reactjs": "react",
+        "nodejs": "node",
+        "expressjs": "express",
+        "angularjs": "angular",
+        "postgres": "postgresql"
+    }
 
-    # 🔥 BACKEND (Python)
-    if "django" in skills_set or "flask" in skills_set:
-        role_dict["Python Developer"] = role_dict.get("Python Developer", 0) + 0.2
+    skills_set = {aliases.get(s, s) for s in skills_set}
 
-    # 🔥 JAVA (only if strong signal)
-    if "spring" in skills_set and "java" in skills_set:
-        role_dict["Java Developer"] = role_dict.get("Java Developer", 0) + 0.4
-    elif "spring" in skills_set:
-        role_dict["Backend Developer"] = role_dict.get("Backend Developer", 0) + 0.3
+    # =====================================================
+    # FULL STACK
+    # =====================================================
 
-    # 🔥 REDUCE PYTHON BIAS
-    if "python" in skills_set and not ("django" in skills_set or "flask" in skills_set):
-        role_dict["Python Developer"] = role_dict.get("Python Developer", 0) + 0.1
+    frontend = {
+        "react","angular","vue","next","html","css","javascript","typescript"
+    }
 
-    # 🔥 DATA SCIENCE (STRICT CHECK)
-    data_skills = {"pandas", "numpy", "matplotlib", "seaborn", "scikit-learn"}
-    ml_keywords = ["machine learning", "ml", "deep learning"]
+    backend = {
+        "node","express","spring","django","flask","fastapi"
+    }
 
-    ml_count = sum(1 for k in ml_keywords if k in text)
-    data_skill_count = len(data_skills & skills_set)
-     
-    # 🚨 HARD FILTER FOR DATA SCIENCE
-    if ml_count < 2 or data_skill_count < 2:
-      role_dict["Data Scientist"] = 0
+    databases = {
+        "mongodb","mysql","postgresql","sqlite","firebase"
+    }
 
-    if ml_count >= 2 and data_skill_count >= 2:
-        role_dict["Data Scientist"] = role_dict.get("Data Scientist", 0) + 0.5
-    else:
-        # ❌ reduce false positives
-        if "Data Scientist" in role_dict:
-            role_dict["Data Scientist"] *= 0.3
+    fs_score = 0
+
+    fs_score += 0.10 * len(frontend & skills_set)
+    fs_score += 0.12 * len(backend & skills_set)
+    fs_score += 0.08 * len(databases & skills_set)
+
+    if "graphql" in skills_set:
+        fs_score += 0.08
+
+    if "jwt" in skills_set:
+        fs_score += 0.05
+
+    if "full stack" in text or "full-stack" in text:
+        fs_score += 0.15
+
+    if fs_score >= 0.35:
+        role_dict["Full Stack Developer"] = (
+            role_dict.get("Full Stack Developer",0)
+            + fs_score
+        )
+
+    # =====================================================
+    # BACKEND
+    # =====================================================
+
+    backend_frameworks = {
+        "node","express","spring","django","flask","fastapi"
+    }
+
+    backend_score = 0
+
+    backend_score += 0.12 * len(
+        backend_frameworks & skills_set
+    )
+
+    backend_score += 0.08 * len(
+        databases & skills_set
+    )
+
+    if "jwt" in skills_set:
+        backend_score += 0.08
+
+    if "graphql" in skills_set:
+        backend_score += 0.08
+
+    if "rest api" in text or "restful" in text:
+        backend_score += 0.12
+
+    if backend_score >= 0.30:
+        role_dict["Backend Developer"] = (
+            role_dict.get("Backend Developer",0)
+            + backend_score
+        )
+
+    # =====================================================
+    # PYTHON DEVELOPER
+    # =====================================================
+
+    python_frameworks = {
+        "django","flask","fastapi"
+    }
+
+    python_score = 0
+
+    if "python" in skills_set:
+        python_score += 0.05
+
+    python_score += 0.08 * len(
+        python_frameworks & skills_set
+    )
+
+    if "automation" in text:
+        python_score += 0.05
+
+    if "api" in text:
+        python_score += 0.05
+
+    if python_score >= 0.20:
+        role_dict["Python Developer"] = (
+            role_dict.get("Python Developer",0)
+            + python_score
+        )
+
+    # =====================================================
+    # JAVA
+    # =====================================================
+
+    java_score = 0
+
+    if "java" in skills_set:
+        java_score += 0.15
+
+    if "spring" in skills_set:
+        java_score += 0.20
+
+    if "jdbc" in skills_set:
+        java_score += 0.10
+
+    if "hibernate" in skills_set:
+        java_score += 0.10
+
+    if java_score >= 0.25:
+        role_dict["Java Developer"] = (
+            role_dict.get("Java Developer",0)
+            + java_score
+        )
+
+    # =====================================================
+    # AI ENGINEER
+    # =====================================================
+
+    ai_skills = {
+        "tensorflow",
+        "keras",
+        "pytorch",
+        "opencv",
+        "huggingface",
+        "langchain",
+        "transformers",
+        "llm"
+    }
+
+    ai_score = 0
+
+    if "python" in skills_set:
+        ai_score += 0.10
+
+    ai_score += 0.08 * len(
+        ai_skills & skills_set
+    )
+
+    ai_keywords = [
+        "machine learning",
+        "deep learning",
+        "computer vision",
+        "cnn",
+        "neural network",
+        "generative ai",
+        "llm",
+        "object detection"
+    ]
+
+    for k in ai_keywords:
+        if k in text:
+            ai_score += 0.08
+
+    if ai_score >= 0.35:
+        role_dict["AI Engineer"] = (
+            role_dict.get("AI Engineer",0)
+            + ai_score
+        )
+
+    # =====================================================
+    # MACHINE LEARNING ENGINEER
+    # =====================================================
+
+    ml_skills = {
+        "scikit-learn",
+        "tensorflow",
+        "keras",
+        "pytorch",
+        "xgboost",
+        "lightgbm"
+    }
+
+    ml_score = 0
+
+    ml_score += 0.10 * len(
+        ml_skills & skills_set
+    )
+
+    ml_keywords = [
+        "model training",
+        "classification",
+        "prediction",
+        "feature extraction",
+        "feature engineering",
+        "cross validation"
+    ]
+
+    for k in ml_keywords:
+        if k in text:
+            ml_score += 0.08
+
+    if ml_score >= 0.30:
+        role_dict["Machine Learning Engineer"] = (
+            role_dict.get("Machine Learning Engineer",0)
+            + ml_score
+        )
+
+    # =====================================================
+    # DATA SCIENTIST
+    # =====================================================
+
+    ds_skills = {
+        "pandas",
+        "numpy",
+        "matplotlib",
+        "seaborn",
+        "scikit-learn"
+    }
+
+    ds_score = 0
+
+    ds_score += 0.08 * len(
+        ds_skills & skills_set
+    )
+
+    ds_keywords = [
+        "data analysis",
+        "exploratory data analysis",
+        "eda",
+        "statistics",
+        "anova",
+        "chi-square",
+        "coefficient of variation",
+        "regression",
+        "classification",
+        "clustering",
+        "feature engineering",
+        "feature selection",
+        "data visualization"
+    ]
+
+    for k in ds_keywords:
+        if k in text:
+            ds_score += 0.08
+
+    if ds_score >= 0.30:
+        role_dict["Data Scientist"] = (
+            role_dict.get("Data Scientist",0)
+            + ds_score
+        )
+
+    # =====================================================
+    # MERGE DUPLICATE ROLES
+    # =====================================================
+
+    role_alias = {
+        "Data Science": "Data Scientist",
+        "ML Engineer": "Machine Learning Engineer"
+    }
+
+    merged = {}
+
+    for role, score in role_dict.items():
+
+        role = role_alias.get(role, role)
+
+        merged[role] = merged.get(role, 0) + score
+
+    role_dict = merged
+
+    # =====================================================
+    # NORMALIZE
+    # =====================================================
 
     total = sum(role_dict.values()) or 1
-    role_dict = {k: v / total for k, v in role_dict.items()}
 
-    return sorted(role_dict.items(), key=lambda x: x[1], reverse=True)[:3]
+    role_dict = {
+    k: round(v / total, 4)
+    for k, v in role_dict.items()
+}
+
+    return sorted(
+        role_dict.items(),
+        key=lambda x: x[1],
+        reverse=True
+    )[:5]
 
 # -------- SCORE --------
 import re

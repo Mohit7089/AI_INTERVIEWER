@@ -10,6 +10,8 @@ const questionsSchema = new mongoose.Schema({
   confidence: { type: Number, default: 0 },
 communication: { type: Number, default: 0 },
 correctness: { type: Number, default: 0 },
+audioConfidenceLabel: { type: String },
+audioConfidenceScore: { type: Number, default: 0 },
 })
 
 

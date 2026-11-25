@@ -1,5 +1,6 @@
 import React from 'react'
 import { motion } from "motion/react"
+import { useLocation } from "react-router-dom";
 import {
     FaUserTie,
     FaBriefcase,
@@ -7,7 +8,7 @@ import {
     FaMicrophoneAlt,
     FaChartLine,
 } from "react-icons/fa";
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from "react-router-dom";
 import axios from "axios"
 import { ServerUrl } from '../App';
@@ -18,6 +19,8 @@ function Step1SetUp({ onStart }) {
     const { userData } = useSelector((state) => state.user)
     const dispatch = useDispatch()
     const navigate = useNavigate();
+    const location = useLocation();
+    
 
     const [role, setRole] = useState("");
     const [experience, setExperience] = useState("");
@@ -36,6 +39,28 @@ function Step1SetUp({ onStart }) {
     const [analysisDone, setAnalysisDone] = useState(false);
     const [analyzing, setAnalyzing] = useState(false);
     const [report, setReport] = useState(null);
+
+
+useEffect(() => {
+    if (!location.state) return;
+
+    const data = location.state;
+
+    setReport(data.report);
+    setAnalysisDone(true);
+
+    setRole(data.role || "");
+    setExperience(data.experience || "");
+    setMode(data.mode || "Technical");
+
+    setProjects(data.projects || []);
+    setSkills(data.skills || []);
+    setSoftSkills(data.softSkills || []);
+    setScore(data.score || 0);
+    setAtsScore(data.atsScore || 0);
+    setTopSkills(data.topSkills || []);
+    setResumeText(data.resumeText || "");
+}, [location.state]);
 
     const handleUploadResume = async () => {
         if (!resumeFile || analyzing) return;
@@ -238,8 +263,20 @@ setResumeText(result.data.resumeText || "");
                                  <button
     onClick={() =>
         navigate("/resume-report", {
-            state: { report },
-        })
+    state: {
+        report,
+        role,
+        experience,
+        mode,
+        projects,
+        skills,
+        softSkills,
+        score,
+        atsScore,
+        topSkills,
+        resumeText,
+    },
+})
     }
     className="mt-4 bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700"
 >

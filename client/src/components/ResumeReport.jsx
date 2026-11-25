@@ -55,7 +55,11 @@ function ResumeReport() {
         <div className="max-w-screen-xl mx-auto px-6 py-4 flex justify-between items-center">
           <div className="flex items-center gap-4">
             <button
-              onClick={() => navigate(-1)}
+              onClick={() => {
+    navigate("/interview", {
+        state: location.state
+    });
+}}
               className="w-10 h-10 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 transition flex items-center justify-center text-sm"
             >
               <FaArrowLeft />
